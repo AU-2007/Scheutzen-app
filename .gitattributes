@@ -1,0 +1,5 @@
+# Zeilenenden immer Linux-Format, sonst laufen Skripte auf dem Server nicht
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

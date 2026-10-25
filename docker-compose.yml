@@ -1,0 +1,20 @@
+services:
+  mannschaften:
+    build: .
+    container_name: schuetzen-mannschaften
+    restart: unless-stopped
+    ports:
+      # BIND_IP in der .env: 127.0.0.1, wenn Reverse Proxy oder Cloudflare Tunnel auf demselben Host laufen,
+      # sonst die IP, über die der Proxy die App erreicht. Leer = alle Netzwerkkarten.
+      - "${BIND_IP:-0.0.0.0}:8000:8000"
+    volumes:
+      - ./data:/data
+    env_file: .env
+    # Härtung: kein Root, keine Zusatzrechte, Dateisystem nur lesbar (außer /data und /tmp)
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

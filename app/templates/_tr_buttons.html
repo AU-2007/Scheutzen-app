@@ -1,0 +1,11 @@
+{# Rückmeldeknöpfe fürs Training: tr = Training (slot_id, date, my_status, free), back = Rücksprung-URL #}
+{% macro tr_buttons(tr, back, big=False) %}
+<form method="post" action="{{ url_for('training_answer', slot_id=tr.slot_id, iso=tr.date) }}" class="avail{{ ' big' if big }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="back" value="{{ back }}">
+  {% set full = tr.free == 0 and tr.my_status not in ('ja', 'spaeter') %}
+  <button name="status" value="ja" class="seg tr-ja {{ 'on' if tr.my_status == 'ja' }}" {{ 'disabled' if full }}>Zusage</button>
+  <button name="status" value="spaeter" class="seg vielleicht {{ 'on' if tr.my_status == 'spaeter' }}" {{ 'disabled' if full }}>Später</button>
+  <button name="status" value="nein" class="seg nein {{ 'on' if tr.my_status == 'nein' }}">Absage</button>
+</form>
+{% endmacro %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Neue Zugänge{% endblock %}
+{% block content %}
+<h1>Neue Zugänge</h1>
+<div class="flash info">Diese Startpasswörter werden nur jetzt angezeigt. Gib sie den Mitgliedern weiter. Beim ersten Login muss jeder ein eigenes Passwort festlegen.</div>
+<div class="card flush" style="margin-top:12px">
+  <table>
+    <thead><tr><th>Name</th><th>Benutzername</th><th>Startpasswort</th></tr></thead>
+    <tbody>
+    {% for a in accounts %}<tr><td>{{ a.name }}</td><td><code>{{ a.username }}</code></td><td><code>{{ a.password }}</code></td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+<p><a class="btn" href="{{ url_for('users') }}">Zur Benutzerliste</a></p>
+{% endblock %}

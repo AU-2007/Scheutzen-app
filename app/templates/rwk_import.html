@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}RWK-Import · {{ t.name }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('team', tid=t.id) }}" class="back">← {{ t.name }}</a></p>
+<h1>Wettkampfplan aus dem RWK-Onlinemelder</h1>
+
+{% if not rows %}
+<ol class="steps">
+  <li>Öffne im <a href="{{ t.rwk_url or 'https://www.rwk-onlinemelder.de/' }}" target="_blank" rel="noopener">RWK-Onlinemelder</a> den <b>Wettkampfplan</b> eurer Klasse.</li>
+  <li>Wähle oben bei <b>Mannschaftsauswahl</b> eure Mannschaft.</li>
+  <li>Tippe auf das <b>Kalender-Symbol</b> neben der Überschrift. Die Datei (.ics) wird gespeichert.</li>
+  <li>Lade die Datei hier hoch. Du siehst vor dem Speichern eine Vorschau.</li>
+</ol>
+<form method="post" enctype="multipart/form-data" class="card stack narrow">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Kalenderdatei (.ics)<input type="file" name="ics" accept=".ics,text/calendar" required></label>
+  <label>Name eurer Mannschaft im RWK-Onlinemelder
+    <input name="rwk_name" value="{{ own }}" placeholder="z. B. SV Musterdorf 1">
+  </label>
+  <p class="muted small" style="margin:0">Daran erkennt die App, ob ihr Heim- oder Gastmannschaft seid.</p>
+  <button class="btn primary">Datei prüfen</button>
+</form>
+{% else %}
+<p class="muted">{{ rows|length }} Termine gefunden. Prüfe Gegner und Heim/Auswärts, dann speichern. Termine, die es schon gibt, werden aktualisiert statt doppelt angelegt.</p>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="save">
+  <input type="hidden" name="rwk_name" value="{{ own }}">
+  <div class="list">
+    {% for r in rows %}
+    {% set i = loop.index0 %}
+    <div class="card import-row {{ 'past' if r.past }}">
+      <input type="hidden" name="row" value="{{ i }}">
+      <input type="hidden" name="uid_{{ i }}" value="{{ r.uid or '' }}">
+      <input type="hidden" name="date_{{ i }}" value="{{ r.date }}">
+      <input type="hidden" name="time_{{ i }}" value="{{ r.time }}">
+      <input type="hidden" name="loc_{{ i }}" value="{{ r.location or '' }}">
+      <label class="check"><input type="checkbox" name="use_{{ i }}" value="1" {{ 'checked' if not r.past and not r.moved }}>
+        <b>{{ r.date|datum }}{% if r.time %} · {{ r.time }} Uhr{% endif %}</b>
+        {% if r.exists %}<span class="pill">schon vorhanden</span>{% endif %}
+        {% if r.moved %}<span class="pill av-vielleicht">in der App verlegt auf {{ r.moved|datum }}</span>{% endif %}
+        {% if r.past %}<span class="pill open">vergangen</span>{% endif %}
+      </label>
+      <div class="muted small">{{ r.summary }}{% if r.location %} · {{ r.location }}{% endif %}</div>
+      <div class="row2">
+        <label>Gegner<input name="opp_{{ i }}" value="{{ r.opp }}"></label>
+        <label>Heim/Auswärts
+          <select name="home_{{ i }}"><option value="1" {{ 'selected' if r.home }}>Heim</option><option value="0" {{ 'selected' if not r.home }}>Auswärts</option></select>
+        </label>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="inline" style="margin-top:14px">
+    <button class="btn primary">Ausgewählte speichern</button>
+    <a class="btn" href="{{ url_for('rwk_import', tid=t.id) }}">Andere Datei</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

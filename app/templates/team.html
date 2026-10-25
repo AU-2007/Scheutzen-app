@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}{{ t.name }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('teams') }}" class="back">← Mannschaften</a></p>
+<div class="head-row">
+  <div>
+    <h1>{{ t.name }}</h1>
+    <div class="muted">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %}{% if t.season %} · Saison {{ t.season }}{% endif %}</div>
+    <div class="small">Mannschaftsführer: <b>{{ t.leader_name or '–' }}</b>{% if t.ext_id %} · Mannschafts-ID {{ t.ext_id }}{% endif %}</div>
+    {% if editors %}<div class="small muted">Bearbeiter: {{ editors|map(attribute='name')|join(', ') }}</div>{% endif %}
+  </div>
+  {% if manage %}<a class="btn" href="{{ url_for('team_edit', tid=t.id) }}">Bearbeiten</a>{% endif %}
+</div>
+
+<div class="rwk-box card">
+  <div><span class="rwk-logo" aria-hidden="true">RWK</span> <b>RWK-Onlinemelder</b>{% if not t.rwk_url %} <span class="muted small">· noch kein Link hinterlegt</span>{% endif %}</div>
+  <div class="inline wrap">
+    {% if t.rwk_url %}<a class="btn small-btn" href="{{ t.rwk_url }}" target="_blank" rel="noopener">Tabelle &amp; Ergebnisse ↗</a>{% endif %}
+    {% if manage %}<a class="btn small-btn" href="{{ url_for('rwk_import', tid=t.id) }}">Wettkampfplan importieren</a>{% endif %}
+    {% if manage and not t.rwk_url %}<a class="btn small-btn" href="{{ url_for('team_edit', tid=t.id) }}">Link hinterlegen</a>{% endif %}
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><b>{{ record.sieg }}</b><span>Siege</span></div>
+  <div class="stat"><b>{{ record.unentschieden }}</b><span>Unentsch.</span></div>
+  <div class="stat"><b>{{ record.niederlage }}</b><span>Niederl.</span></div>
+</div>
+
+<section>
+  <div class="head-row">
+    <h2>Wettkämpfe</h2>
+    {% if manage %}<a class="btn primary small-btn" href="{{ url_for('match_edit', tid=t.id) }}">+ Wettkampf</a>{% endif %}
+  </div>
+  {% if matches %}
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Datum</th><th>Gegner</th><th class="num">Ergebnis</th></tr></thead>
+      <tbody>
+      {% for m in matches %}
+        <tr class="{{ 'past' if m.date < today and not m.outcome }}">
+          <td class="nowrap">{{ m.date[8:10] }}.{{ m.date[5:7] }}.{{ m.date[2:4] }}</td>
+          <td><a href="{{ url_for('match', mid=m.id) }}">{{ 'vs.' if m.home else '@' }} {{ m.opponent }}</a></td>
+          <td class="num nowrap">
+            {% if m.total is not none %}{{ m.total|ringe }} : {{ m.opponent_score|ringe }}{% else %}<span class="muted">–</span>{% endif %}
+            {% if m.outcome %}<span class="dot {{ m.outcome }}" title="{{ m.outcome|capitalize }}"></span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Noch keine Wettkämpfe eingetragen.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Schützen</h2>
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th></th>{% endif %}</tr></thead>
+      <tbody>
+      {% for s in members %}
+        <tr>
+          <td>{{ s.name }}{% if s.id == t.leader_id %} <span class="pill">MF</span>{% endif %}
+            {% if manage %}
+            <form method="post" action="{{ url_for('team_toggle_reserve', tid=t.id, uid=s.id) }}" class="inline-tag">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="pill {{ 'sub' if s.reserve else 'open' }} pill-btn" title="Zwischen Stamm und Ersatz wechseln">{{ 'Ersatz' if s.reserve else 'Stamm' }}</button>
+            </form>
+            {% elif s.reserve %} <span class="pill sub">Ersatz</span>{% endif %}
+          </td>
+          <td class="num">{{ s.n }}</td>
+          <td class="num strong">{{ s.avg|ringe if s.avg is not none else '–' }}</td>
+          <td class="num">{{ s.best|ringe }}</td>
+          {% if manage %}
+          <td class="num">
+            <form method="post" action="{{ url_for('team_remove_member', tid=t.id, uid=s.id) }}" onsubmit='return confirm({{ (s.name ~ " aus der Mannschaft entfernen?")|tojson }})'>
+              <input type="hidden" name="csrf" value="{{ csrf }}"><button class="x" title="Entfernen">✕</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if manage %}<p class="muted small">Tippe auf „Stamm“ oder „Ersatz“, um umzuschalten. Ersatzschützen aus anderen Mannschaften stellst du direkt beim Wettkampf auf.</p>{% endif %}
+  {% if manage and candidates %}
+  <form method="post" action="{{ url_for('team_add_member', tid=t.id) }}" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="user_id" required>
+      <option value="">Schützen hinzufügen …</option>
+      {% for c in candidates %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+    <select name="reserve" class="shrink" aria-label="Als Stamm oder Ersatz">
+      <option value="0">Stamm</option>
+      <option value="1">Ersatz</option>
+    </select>
+    <button class="btn">Hinzufügen</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

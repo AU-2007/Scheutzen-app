@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Protokoll{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('index') }}" class="back">← Übersicht</a></p>
+<h1>Protokoll</h1>
+<div class="toggle" role="group" aria-label="Protokoll">
+  <a href="{{ url_for('admin_log') }}" class="{{ 'on' if kind == 'anmeldungen' }}">Anmeldungen</a>
+  <a href="{{ url_for('admin_log', art='fehler') }}" class="{{ 'on' if kind == 'fehler' }}">Fehler</a>
+</div>
+<p class="muted small">Die letzten 300 Einträge. Einträge älter als 90 Tage werden automatisch gelöscht.</p>
+
+{% if kind == 'anmeldungen' %}
+<div class="card flush">
+  <table class="log">
+    <thead><tr><th>Zeit</th><th>Wer</th><th class="hide-sm">Gerät</th><th>IP</th></tr></thead>
+    <tbody>
+    {% for l in rows %}
+      <tr class="{{ 'fail' if not l.ok }}">
+        <td class="nowrap small">{{ l.at[8:10] }}.{{ l.at[5:7] }}. {{ l.at[11:16] }}</td>
+        <td>{% if l.ok %}{{ l.name or l.username }}{% else %}<span class="pill av-nein">Fehlversuch</span> „{{ l.username }}“{% endif %}</td>
+        <td class="hide-sm small muted">{{ l.device }}</td>
+        <td class="small muted mono">{{ l.ip }}</td>
+      </tr>
+    {% else %}<tr><td colspan="4" class="muted">Keine Einträge.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="list">
+  {% for e in rows %}
+  <details class="card err">
+    <summary><b>{{ e.message }}</b><br><span class="small muted">{{ e.at[8:10] }}.{{ e.at[5:7] }}. {{ e.at[11:16] }} · {{ e.method }} {{ e.path }}{% if e.name %} · {{ e.name }}{% endif %}</span></summary>
+    <pre class="report">{{ e.detail }}</pre>
+  </details>
+  {% else %}<p class="muted">Keine Fehler protokolliert.</p>{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

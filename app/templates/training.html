@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_tr_buttons.html" import tr_buttons with context %}
+{% block title %}Training{% endblock %}
+{% block content %}
+<div class="head-row">
+  <div class="tr-head">
+    <h1>Training</h1>
+    <div class="muted small">
+      {% for s in slots %}{{ WEEKDAYS[s.weekday] }} {{ s.start }}{% if s.end %}–{{ s.end }}{% endif %}{{ ' · ' if not loop.last }}{% else %}Noch keine Trainingszeiten angelegt.{% endfor %}
+    </div>
+  </div>
+  {% if can_edit %}
+  <div class="inline wrap">
+    <a class="btn small-btn special" href="{{ url_for('training_slots') }}#sonder">+ Sondertraining</a>
+    <a class="btn small-btn" href="{{ url_for('training_slots') }}">Verwalten</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if items %}
+<div class="tr-list" style="margin-top:16px">
+  {% set ns = namespace(week=None) %}
+  {% for t in items %}
+    {% set wk = t.date|kw %}
+    {% if wk != ns.week %}{% set ns.week = wk %}<div class="week-label">{{ wk }}</div>{% endif %}
+    <div class="card tr-card {{ 'cancelled' if t.cancelled }} {{ 'special' if t.special }}">
+      <a class="match-head" href="{{ url_for('training_detail', slot_id=t.slot_id, iso=t.date) }}">
+        <div class="date-chip tr"><b>{{ t.date[8:10] }}.{{ t.date[5:7] }}.</b><span>{{ t.start }}</span></div>
+        <div class="grow">
+          <div class="strong">{{ t.title }}{% if t.special %} <span class="pill special">Sondertraining</span>{% endif %}</div>
+          {% if t.note %}<div class="small">{{ t.note }}</div>{% endif %}
+          <div class="muted small">{{ t.date|datum }} · {{ t.start }}{% if t.end %}–{{ t.end }}{% endif %}</div>
+          {% if t.cancelled %}
+            <span class="pill cancel">Fällt aus{% if t.reason %}: {{ t.reason }}{% endif %}</span>
+          {% else %}
+            <div class="lanes-meter" aria-hidden="true">{% for n in range(t.lanes) %}<i class="{{ 'on' if n < t.booked }}"></i>{% endfor %}</div>
+            <div class="small"><b>{{ t.free }}</b> von {{ t.lanes }} Ständen frei</div>
+          {% endif %}
+        </div>
+      </a>
+      {% if not t.cancelled %}{{ tr_buttons(t, url_for('training')) }}{% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card" style="margin-top:16px">
+  <p class="muted" style="margin:0">Es sind noch keine Trainingszeiten eingetragen.{% if can_edit %} Lege sie unter <a href="{{ url_for('training_slots') }}">Verwalten</a> an, zum Beispiel Dienstag und Freitag.{% endif %}</p>
+</div>
+{% endif %}
+{% endblock %}

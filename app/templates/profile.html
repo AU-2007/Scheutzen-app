@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Mein Profil{% endblock %}
+{% block content %}
+<div class="profile-head">
+  {% if me.avatar %}<img class="avatar xl" src="{{ url_for('avatar', uid=me.id, v=me.avatar) }}" alt="Profilbild">{% else %}<span class="avatar xl initials">{{ me.name[:1] }}</span>{% endif %}
+  <div>
+    <h1>{{ me.name }}</h1>
+    <div class="muted">{{ ROLES[me.role] }}{% if teams %} · {{ teams|map(attribute='name')|join(', ') }}{% endif %}</div>
+    <div class="id-row">
+      <span><small>Spieler-ID</small><b>{{ me.player_id or '–' }}</b></span>
+      <span><small>Pass-Nr.</small><b>{{ me.pass_nr or '–' }}</b></span>
+      <span><small>Benutzername</small><b>{{ me.username }}</b></span>
+    </div>
+  </div>
+</div>
+
+{# ---------- Statistik ---------- #}
+<section>
+  <h2>Meine Statistik</h2>
+  <div class="stats four">
+    <div class="stat"><b>{{ stats.trainings }}</b><span>Trainings<br><small>letzte 12 Monate</small></span></div>
+    <div class="stat"><b>{{ stats.matches }}</b><span>Wettkämpfe<br><small>geschossen</small></span></div>
+    <div class="stat"><b>{{ stats.avg|ringe if stats.avg is not none else '–' }}</b><span>Schnitt<br><small>Ringe</small></span></div>
+    <div class="stat"><b>{{ stats.best|ringe if stats.best is not none else '–' }}</b><span>Bestes<br><small>Ergebnis</small></span></div>
+  </div>
+  {% if stats.bars %}
+  <div class="card spark">
+    <div class="muted small">Letzte {{ stats.bars|length }} Ergebnisse</div>
+    <div class="bars">
+      {% for b in stats.bars %}<div class="bar" style="--h: {{ b.pct|round(0) }}%" title="{{ b.date|datum }} · {{ b.opponent }}: {{ b.rings|ringe }}"><span>{{ b.rings|ringe }}</span></div>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{# ---------- Profilbild ---------- #}
+<section>
+  <h2>Profilbild</h2>
+  <div class="card stack">
+    <form method="post" enctype="multipart/form-data" class="inline wrap" id="avatar-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="avatar">
+      <label class="btn small-btn file-btn">Bild auswählen<input type="file" name="avatar" accept="image/*" onchange="this.form.submit()"></label>
+    </form>
+    {% if me.avatar %}
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="avatar_delete">
+      <button class="linkbtn small">Profilbild entfernen</button></form>
+    {% endif %}
+    <p class="muted small" style="margin:0">Das Bild wird quadratisch zugeschnitten und nur für angemeldete Vereinsmitglieder angezeigt.</p>
+  </div>
+</section>
+
+{# ---------- Darstellung ---------- #}
+<section>
+  <h2>Darstellung</h2>
+  <form method="post" class="card stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="look">
+    <div>
+      <div class="field-label">Modus</div>
+      <div class="choice-row">
+        {% for k, label in THEMES.items() %}
+        <label class="choice"><input type="radio" name="theme" value="{{ k }}" {{ 'checked' if me.theme == k }}><span>{{ label }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    <div>
+      <div class="field-label">Farbe</div>
+      <div class="choice-row">
+        {% for k, a in ACCENTS.items() %}
+        <label class="choice swatch"><input type="radio" name="accent" value="{{ k }}" {{ 'checked' if me.accent == k }}><span><i style="background: {{ a[2] }}"></i>{{ a[0] }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    <button class="btn primary">Speichern</button>
+  </form>
+</section>
+
+{# ---------- Passwort ---------- #}
+<section id="passwort">
+  <h2>Passwort ändern</h2>
+  <form method="post" action="{{ url_for('password') }}" class="card stack narrow">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Aktuelles Passwort<input name="old" type="password" autocomplete="current-password" required></label>
+    <label>Neues Passwort <span class="muted small">(mind. 8 Zeichen)</span><input name="new" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label>Neues Passwort wiederholen<input name="new2" type="password" autocomplete="new-password" minlength="8" required></label>
+    <button class="btn primary">Passwort ändern</button>
+  </form>
+</section>
+{% endblock %}

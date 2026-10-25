@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% from "_tr_buttons.html" import tr_buttons with context %}
+{% block title %}{{ s.title }} {{ d|datum }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('schedule') }}" class="back">← Termine</a></p>
+<div class="tr-head">
+  <h1>{{ s.title }}</h1>
+  <div class="muted">{{ d|datum }} · {{ s.start }}{% if s.end %}–{{ s.end }}{% endif %} Uhr{% if s.location %} · {{ s.location }}{% endif %}</div>
+  {% if s.once_date %}<span class="pill special">Sondertraining</span>{% endif %}
+  {% for g in tgroups %}<span class="pill grp">{{ g.name }}</span>{% else %}<span class="pill open">für alle</span>{% endfor %}
+  {% if s.note %}<p style="margin:6px 0 0">{{ s.note }}</p>{% endif %}
+  {% if can_edit %}<p style="margin:6px 0 0"><a class="small" href="{{ url_for('training_slots') }}{{ '#sonder' if s.once_date }}">{{ 'Sondertraining ändern' if s.once_date else 'Trainingszeiten verwalten' }}</a></p>{% endif %}
+</div>
+
+{% if cancelled %}
+<div class="flash error">Dieses Training fällt aus{% if reason %}: {{ reason }}{% endif %}.</div>
+{% endif %}
+
+<div class="card lanes-card">
+  <div class="lanes-big"><b>{{ free }}</b><span>von {{ total_lanes }} Ständen frei</span></div>
+  {% if areas %}
+  <div class="area-bars">
+    {% for a in areas if a.no %}
+    <div class="area-bar"><span class="area-name">{{ a.name }}</span>
+      <span class="lanes-meter" aria-hidden="true">{% for n in range(a.lanes) %}<i class="{{ 'on' if n < a.booked }}"></i>{% endfor %}</span>
+      <span class="small">{{ a.booked }}/{{ a.lanes }}</span></div>
+    {% endfor %}
+    {% if areas[2].booked %}<div class="small muted">{{ areas[2].booked }} noch keinem Bereich zugeteilt</div>{% endif %}
+  </div>
+  {% else %}
+  <div class="lanes-meter big" aria-hidden="true">{% for n in range(s.lanes) %}<i class="{{ 'on' if n < booked }}"></i>{% endfor %}</div>
+  {% endif %}
+</div>
+
+{% if open_ %}
+<section>
+  <h2>Deine Rückmeldung</h2>
+  {% if areas %}
+  <form method="post" action="{{ url_for('training_answer', slot_id=s.id, iso=d) }}" class="stack area-answer">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div>
+      <div class="field-label">Was möchtest du schießen?</div>
+      <div class="choice-row">
+        {% for a in areas if a.no %}<label class="choice"><input type="radio" name="area" value="{{ a.no }}" {{ 'checked' if my_area == a.no }}><span>{{ a.name }}</span></label>{% endfor %}
+        <label class="choice"><input type="radio" name="area" value="" {{ 'checked' if not my_area }}><span>Egal</span></label>
+      </div>
+    </div>
+    <div class="avail big">
+      <button name="status" value="ja" class="seg tr-ja {{ 'on' if mine == 'ja' }}" {{ 'disabled' if free == 0 and mine not in ('ja','spaeter') }}>Zusage</button>
+      <button name="status" value="spaeter" class="seg vielleicht {{ 'on' if mine == 'spaeter' }}" {{ 'disabled' if free == 0 and mine not in ('ja','spaeter') }}>Später</button>
+      <button name="status" value="nein" class="seg nein {{ 'on' if mine == 'nein' }}">Absage</button>
+    </div>
+    <p class="muted small" style="margin:0">Den endgültigen Bereich teilt der Trainer zu.</p>
+  </form>
+  {% else %}
+  {{ tr_buttons(dict(slot_id=s.id, date=d, my_status=mine, free=free), url_for('training_detail', slot_id=s.id, iso=d), True) }}
+  {% endif %}
+  {% if free == 0 and mine not in ('ja', 'spaeter') %}<p class="muted small">Alle Stände sind belegt.</p>{% endif %}
+</section>
+{% elif past %}
+<p class="muted small">Dieses Training liegt in der Vergangenheit.</p>
+{% endif %}
+
+{% if areas and can_edit and coming %}
+<section id="zuteilung">
+  <h2>Zuteilung <span class="muted small">(Trainer)</span></h2>
+  <form method="post" action="{{ url_for('training_assign', slot_id=s.id, iso=d) }}" class="card flush">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <table>
+      <tbody>
+      {% for r in coming %}
+        <tr>
+          <td>{{ r.name }}{% if r.status == 'spaeter' %} <span class="pill av-vielleicht">später</span>{% endif %}</td>
+          <td class="num">
+            <div class="assign">
+              {% for a in areas if a.no %}<label><input type="radio" name="area_{{ r.user_id }}" value="{{ a.no }}" {{ 'checked' if r.area == a.no }}><span>{{ a.name }}</span></label>{% endfor %}
+              <label><input type="radio" name="area_{{ r.user_id }}" value="" {{ 'checked' if not r.area }}><span>–</span></label>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div style="padding:12px"><button class="btn primary">Zuteilung speichern</button></div>
+  </form>
+</section>
+{% endif %}
+
+<section>
+  <h2>Rückmeldungen</h2>
+  <div class="card flush">
+    <table>
+      <tbody>
+      {% for k, label in TR.items() %}
+        <tr>
+          <td class="nowrap" style="width:130px"><span class="pill {{ 'tr' if k == 'ja' else ('av-vielleicht' if k == 'spaeter' else 'av-nein') }}">{{ label }}</span> <span class="muted small">{{ groups[k]|length }}</span></td>
+          <td>{% for r in groups[k] %}{{ r.name }}{% if areas and r.area and k != 'nein' %} <span class="pill area">{{ areas[r.area - 1].name }}</span>{% endif %}{% if r.user_id == me.id %} <span class="muted small">(du)</span>{% endif %}{{ ', ' if not loop.last }}{% else %}<span class="muted">–</span>{% endfor %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if can_cancel and not past %}
+<section>
+  {% if cancelled %}
+  <form method="post" action="{{ url_for('training_cancel', slot_id=s.id, iso=d) }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn" name="undo" value="1">Training findet doch statt</button>
+  </form>
+  {% else %}
+  <details class="card">
+    <summary class="strong" style="cursor:pointer">Training ausfallen lassen</summary>
+    <form method="post" action="{{ url_for('training_cancel', slot_id=s.id, iso=d) }}" class="stack" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Grund <span class="muted small">(optional)</span><input name="reason" placeholder="z. B. Feiertag, Vereinsfest"></label>
+      <button class="btn danger">Als ausgefallen markieren</button>
+    </form>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

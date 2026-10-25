@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Gegner{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Gegner</h1>
+  <a class="btn small-btn" href="{{ url_for('csv_import', kind='gegner') }}">Aus Datei importieren</a>
+</div>
+<p class="muted">Diese Vereine und Mannschaften stehen beim Anlegen eines Wettkampfs zur Auswahl. Der Ort wird bei Auswärtsterminen automatisch übernommen.</p>
+
+<form method="post" class="card stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="opp-grid">
+    <label>Verein<input name="club" placeholder="z. B. SG Bergheim" required></label>
+    <label>Mannschaft<input name="team" placeholder="z. B. 1"></label>
+    <label>Ort / Schießstand<input name="location" placeholder="z. B. Schützenhaus Bergheim"></label>
+  </div>
+  <button class="btn primary">Gegner hinzufügen</button>
+</form>
+
+{% if rows %}
+<div class="list" style="margin-top:12px">
+  {% for o in rows %}
+  <details class="card slot-card">
+    <summary><b>{{ o.club }}{% if o.team %} {{ o.team }}{% endif %}</b>{% if o.location %}<span class="muted small">{{ o.location }}</span>{% endif %}<span class="edit-hint small">Ändern</span></summary>
+    <form method="post" class="stack" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ o.id }}">
+      <div class="opp-grid">
+        <label>Verein<input name="club" value="{{ o.club }}" required></label>
+        <label>Mannschaft<input name="team" value="{{ o.team }}"></label>
+        <label>Ort / Schießstand<input name="location" value="{{ o.location }}"></label>
+      </div>
+      <div class="inline">
+        <button class="btn primary">Speichern</button>
+        <button class="btn danger" name="delete" value="1" formnovalidate onclick="return confirm('Gegner löschen? Bestehende Wettkämpfe bleiben erhalten.')">Löschen</button>
+      </div>
+    </form>
+  </details>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Noch keine Gegner eingetragen.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Mannschaften{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Mannschaften</h1>
+  {% if me.role == 'admin' %}<a class="btn primary" href="{{ url_for('team_edit') }}">+ Neue Mannschaft</a>{% endif %}
+</div>
+{% if teams %}
+<div class="grid">
+  {% for t in teams %}
+  <a class="card tile" href="{{ url_for('team', tid=t.id) }}">
+    <div class="strong">{{ t.name }}</div>
+    <div class="muted small">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %}{% if t.season %} · {{ t.season }}{% endif %}</div>
+    <div class="small">MF: {{ t.leader_name or '–' }} · {{ t.n_members }} Schützen</div>
+    {% if t.next_match %}<div class="small muted">Nächster: {{ t.next_match|datum }}</div>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Noch keine Mannschaften angelegt.</p>
+{% endif %}
+{% endblock %}

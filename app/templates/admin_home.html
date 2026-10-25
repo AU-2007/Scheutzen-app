@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Verwaltung{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Hallo, {{ me.name.split(' ')[0] }}</h1>
+  <a class="btn small-btn" href="{{ url_for('schedule') }}">Termine ansehen</a>
+</div>
+
+{% for w in warnings %}<div class="flash info">{{ w }}</div>{% endfor %}
+
+{# ---------- Kennzahlen ---------- #}
+<div class="kpis">
+  <div class="kpi"><b>{{ online|length }}</b><span>gerade online</span></div>
+  <div class="kpi"><b>{{ stats.logins_day }}</b><span>Anmeldungen<br><small>letzte 24 Std.</small></span></div>
+  <div class="kpi {{ 'warn' if stats.failed_day }}"><b>{{ stats.failed_day }}</b><span>Fehlversuche<br><small>letzte 24 Std.</small></span></div>
+  <div class="kpi {{ 'bad' if stats.errors_week }}"><b>{{ stats.errors_week }}</b><span>Serverfehler<br><small>letzte 7 Tage</small></span></div>
+  <div class="kpi"><b>{{ stats.active_week }}<small>/{{ stats.users }}</small></b><span>Mitglieder aktiv<br><small>letzte 7 Tage</small></span></div>
+  <div class="kpi"><b>{{ stats.matches_up }}</b><span>kommende<br><small>Wettkämpfe</small></span></div>
+</div>
+
+{# ---------- Online ---------- #}
+<section>
+  <h2>Gerade online <span class="muted small">(letzte 5 Minuten)</span></h2>
+  {% if online %}
+  <div class="online-list">
+    {% for u in online %}
+    <span class="online-chip">{% if u.avatar %}<img class="avatar xs" src="{{ url_for('avatar', uid=u.id, v=u.avatar) }}" alt="">{% else %}<span class="avatar xs">{{ u.name[:1] }}</span>{% endif %}{{ u.name }}<i class="dot-on" aria-hidden="true"></i></span>
+    {% endfor %}
+  </div>
+  {% else %}<p class="muted">Niemand außer dir.</p>{% endif %}
+</section>
+
+{# ---------- Zu erledigen ---------- #}
+<section>
+  <h2>Zu erledigen</h2>
+  <div class="card todo-list">
+    {% set n = todo.moves|length + todo.no_result|length + todo.never|length + todo.no_leader|length %}
+    {% for mv in todo.moves %}
+    <a class="todo-row" href="{{ url_for('match', mid=mv.match_id) }}#verlegung"><span class="pill av-vielleicht">Verlegung</span>{{ mv.team_name }} – {{ mv.opponent }}: {{ mv.old_date|datum }} → {{ mv.new_date|datum }}</a>
+    {% endfor %}
+    {% for m in todo.no_result %}
+    <a class="todo-row" href="{{ url_for('match', mid=m.id) }}"><span class="pill open">kein Ergebnis</span>{{ m.team_name }} – {{ m.opponent }}, {{ m.date|datum }}</a>
+    {% endfor %}
+    {% for t in todo.no_leader %}
+    <a class="todo-row" href="{{ url_for('team_edit', tid=t.id) }}"><span class="pill open">ohne MF</span>Mannschaft {{ t.name }} hat keinen Mannschaftsführer</a>
+    {% endfor %}
+    {% if todo.never %}
+    <a class="todo-row" href="{{ url_for('users') }}"><span class="pill open">nie angemeldet</span>{{ todo.never|length }} {{ 'Mitglied hat' if todo.never|length == 1 else 'Mitglieder haben' }} sich noch nie angemeldet: {{ todo.never[:5]|map(attribute='name')|join(', ') }}{{ ' …' if todo.never|length > 5 }}</a>
+    {% endif %}
+    {% if not n %}<p class="muted" style="margin:0;padding:12px 14px">Alles erledigt.</p>{% endif %}
+  </div>
+</section>
+
+{# ---------- Anmeldungen ---------- #}
+<section>
+  <div class="head-row"><h2>Letzte Anmeldungen</h2><a class="small" href="{{ url_for('admin_log') }}">Alle anzeigen</a></div>
+  <div class="card flush">
+    <table class="log">
+      <thead><tr><th>Wann</th><th>Wer</th><th class="hide-sm">Gerät</th><th class="hide-sm">IP</th></tr></thead>
+      <tbody>
+      {% for l in logins %}
+        <tr class="{{ 'fail' if not l.ok }}">
+          <td class="nowrap">{{ l.at|seit }}</td>
+          <td>{% if l.ok %}{{ l.name or l.username }}{% else %}<span class="pill av-nein">Fehlversuch</span> <span class="small">„{{ l.username }}“</span>{% endif %}</td>
+          <td class="hide-sm small muted">{{ l.device }}</td>
+          <td class="hide-sm small muted mono">{{ l.ip }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">Noch keine Anmeldungen protokolliert.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ---------- Fehler ---------- #}
+<section>
+  <div class="head-row"><h2>Fehlerprotokoll</h2>{% if errors %}<a class="small" href="{{ url_for('admin_log', art='fehler') }}">Alle anzeigen</a>{% endif %}</div>
+  {% if errors %}
+  <div class="list">
+    {% for e in errors %}
+    <details class="card err">
+      <summary><span class="pill av-nein">500</span> <b>{{ e.message }}</b><br><span class="small muted">{{ e.at|seit }} · {{ e.method }} {{ e.path }}{% if e.name %} · {{ e.name }}{% endif %}</span></summary>
+      <pre class="report">{{ e.detail }}</pre>
+    </details>
+    {% endfor %}
+  </div>
+  <form method="post" action="{{ url_for('admin_log_clear') }}" style="margin-top:8px" onsubmit="return confirm('Fehlerprotokoll leeren?')">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small-btn">Protokoll leeren</button>
+  </form>
+  {% else %}
+  <div class="card ok-card">Keine Serverfehler. Alles läuft.</div>
+  {% endif %}
+</section>
+
+{# ---------- Server ---------- #}
+<section>
+  <h2>Server</h2>
+  <div class="card server">
+    <dl>
+      <dt>Läuft seit</dt><dd>{{ server.uptime }} <span class="muted small">(Start {{ server.started }})</span></dd>
+      <dt>Datenbank</dt><dd>{{ server.db|bytes }}{% if server.avatars %} <span class="muted small">+ Profilbilder {{ server.avatars|bytes }}</span>{% endif %}</dd>
+      <dt>Speicher</dt><dd>
+        <div class="disk"><i style="width: {{ server.disk_pct }}%" class="{{ 'full' if server.disk_pct >= 90 }}"></i></div>
+        <span class="small">{{ server.disk_free|bytes }} frei von {{ server.disk_total|bytes }}</span></dd>
+      <dt>HTTPS</dt><dd>{{ 'aktiv' if server.https else 'nicht aktiv' }}</dd>
+      <dt>Versionen</dt><dd class="small">Python {{ server.python }} · Flask {{ server.flask }} · SQLite {{ server.sqlite }}</dd>
+      <dt>Rechner</dt><dd class="small mono">{{ server.host }}</dd>
+    </dl>
+    <div class="inline wrap">
+      <a class="btn small-btn primary" href="{{ url_for('admin_backup') }}">Datenbank-Backup herunterladen</a>
+    </div>
+  </div>
+</section>
+
+{# ---------- Verwaltung ---------- #}
+<section>
+  <h2>Verwaltung</h2>
+  <div class="admin-links">
+    <a class="card tile" href="{{ url_for('users') }}"><b>Benutzer</b><span class="muted small">{{ stats.users }} aktiv · anlegen, Rollen, Passwörter</span></a>
+    <a class="card tile" href="{{ url_for('teams') }}"><b>Mannschaften</b><span class="muted small">{{ stats.teams }} · Mannschaftsführer, Bearbeiter</span></a>
+    <a class="card tile" href="{{ url_for('groups') }}"><b>Trainingsgruppen</b><span class="muted small">Jugend, Erwachsene …</span></a>
+    <a class="card tile" href="{{ url_for('training_slots') }}"><b>Trainingszeiten</b><span class="muted small">{{ stats.slots }} feste Zeiten, Sondertrainings</span></a>
+    <a class="card tile" href="{{ url_for('opponents') }}"><b>Gegner</b><span class="muted small">Vereine und Mannschaften</span></a>
+    <a class="card tile" href="{{ url_for('club') }}"><b>Verein &amp; Import</b><span class="muted small">Vereinsdaten, CSV-Import</span></a>
+  </div>
+</section>
+{% endblock %}

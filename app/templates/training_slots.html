@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Training verwalten{% endblock %}
+{% macro group_pick(sel) %}
+  {% if all_groups %}
+  <div>
+    <div class="field-label">Für welche Gruppen? <span class="muted small">(nichts gewählt = für alle)</span></div>
+    <div class="choice-row">
+      {% for g in all_groups %}<label class="choice"><input type="checkbox" name="groups" value="{{ g.id }}" {{ 'checked' if g.id in sel }}><span>{{ g.name }}</span></label>{% endfor %}
+    </div>
+  </div>
+  {% elif me.role == 'admin' %}<p class="muted small" style="margin:0">Tipp: Unter <a href="{{ url_for('groups') }}">Gruppen</a> kannst du Trainings auf z. B. Jugend oder Erwachsene beschränken.</p>{% endif %}
+{% endmacro %}
+{% macro group_pills(sid) %}{% for g in all_groups if g.id in sgmap.get(sid, ()) %}<span class="pill grp">{{ g.name }}</span>{% endfor %}{% endmacro %}
+{% block content %}
+<p><a href="{{ url_for('schedule') }}" class="back">← Termine</a></p>
+<h1>Training verwalten</h1>
+
+{# ---------- Sondertraining ---------- #}
+<section id="sonder">
+  <h2>Sondertraining <span class="muted small">(einmalig)</span></h2>
+  <form method="post" class="card stack special-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="kind" value="sonder">
+    <div class="slot-grid">
+      <label>Datum<input type="date" name="once_date" min="{{ today }}" required></label>
+      <label>Beginn<input type="time" name="start" value="18:00" required></label>
+      <label>Ende<input type="time" name="end" value="20:00"></label>
+      </div>
+        <div class="area-grid"><label>Bereich 1<input name="area1" value="LG" placeholder="LG"></label><label>Stände<input type="number" name="lanes" min="1" max="60" value="{{ default_lanes }}" required></label><label>Bereich 2 <span class="muted small">(optional)</span><input name="area2" value="KK" placeholder="KK"></label><label>Stände<input type="number" name="lanes2" min="0" max="60" value="0"></label></div>
+        <p class="muted small" style="margin:0">Zweiter Bereich, z. B. KK zur gleichen Zeit wie LG: Stände eintragen. 0 = nur ein Bereich.</p>
+        
+    <div class="row2">
+      <label>Bezeichnung<input name="title" value="Sondertraining" placeholder="z. B. Vorbereitung Kreismeisterschaft"></label>
+      <label>Ort<input name="location" value="Schützenhaus"></label>
+    </div>
+    <label>Hinweis <span class="muted small">(optional)</span><input name="note" placeholder="z. B. Trainer: Hans"></label>
+    {{ group_pick(()) }}
+    <button class="btn special">Sondertraining anlegen</button>
+  </form>
+
+  {% if specials %}
+  <div class="list" style="margin-top:10px">
+    {% for s in specials %}
+    <details class="card slot-card">
+      <summary>
+        <span class="pill special">Sonder</span>
+        <b>{{ s.once_date|datum }}</b> · {{ s.start }}{% if s.end %}–{{ s.end }}{% endif %} · {{ s.title }} {{ group_pills(s.id) }}
+        <span class="muted small">{{ s.lanes }} Stände</span>
+        <span class="edit-hint small">Ändern</span>
+      </summary>
+      <form method="post" class="stack" style="margin-top:12px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="id" value="{{ s.id }}">
+        <input type="hidden" name="kind" value="sonder">
+        <div class="slot-grid">
+          <label>Datum<input type="date" name="once_date" value="{{ s.once_date }}" required></label>
+          <label>Beginn<input type="time" name="start" value="{{ s.start }}" required></label>
+          <label>Ende<input type="time" name="end" value="{{ s.end }}"></label>
+          </div>
+        <div class="area-grid"><label>Bereich 1<input name="area1" value="{{ s.area1 }}" placeholder="LG"></label><label>Stände<input type="number" name="lanes" min="1" max="60" value="{{ s.lanes }}" required></label><label>Bereich 2 <span class="muted small">(optional)</span><input name="area2" value="{{ s.area2 }}" placeholder="KK"></label><label>Stände<input type="number" name="lanes2" min="0" max="60" value="{{ s.lanes2 }}"></label></div>
+        <p class="muted small" style="margin:0">Zweiter Bereich, z. B. KK zur gleichen Zeit wie LG: Stände eintragen. 0 = nur ein Bereich.</p>
+        
+        <div class="row2">
+          <label>Bezeichnung<input name="title" value="{{ s.title }}"></label>
+          <label>Ort<input name="location" value="{{ s.location }}"></label>
+        </div>
+        <label>Hinweis<input name="note" value="{{ s.note }}"></label>
+        {{ group_pick(sgmap.get(s.id, ())) }}
+        <div class="inline">
+          <button class="btn primary">Speichern</button>
+          <button class="btn danger" name="delete" value="1" onclick="return confirm('Sondertraining mit allen Rückmeldungen löschen?')">Löschen</button>
+        </div>
+      </form>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+{# ---------- Feste Trainingszeiten ---------- #}
+<section>
+  <h2>Feste Trainingszeiten <span class="muted small">(jede Woche)</span></h2>
+  <p class="muted small" style="margin:0">Einzelne Ausfälle markierst du direkt beim jeweiligen Training.</p>
+  <div class="list" style="margin-top:10px">
+    {% for s in slots %}
+    <details class="card slot-card">
+      <summary>
+        <span class="pill tr">wöchentlich</span>
+        <b>{{ WEEKDAYS[s.weekday] }}</b> · {{ s.start }}{% if s.end %}–{{ s.end }}{% endif %} · {{ s.title }} {{ group_pills(s.id) }}
+        <span class="muted small">{{ s.lanes }} Stände{{ ' · pausiert' if not s.active }}</span>
+        <span class="edit-hint small">Ändern</span>
+      </summary>
+      <form method="post" class="stack" style="margin-top:12px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="id" value="{{ s.id }}">
+        <input type="hidden" name="active" value="">
+        <div class="slot-grid">
+          <label>Wochentag<select name="weekday">{% for w in WEEKDAYS %}<option value="{{ loop.index0 }}" {{ 'selected' if s.weekday == loop.index0 }}>{{ w }}</option>{% endfor %}</select></label>
+          <label>Beginn<input type="time" name="start" value="{{ s.start }}" required></label>
+          <label>Ende<input type="time" name="end" value="{{ s.end }}"></label>
+          </div>
+        <div class="area-grid"><label>Bereich 1<input name="area1" value="{{ s.area1 }}" placeholder="LG"></label><label>Stände<input type="number" name="lanes" min="1" max="60" value="{{ s.lanes }}" required></label><label>Bereich 2 <span class="muted small">(optional)</span><input name="area2" value="{{ s.area2 }}" placeholder="KK"></label><label>Stände<input type="number" name="lanes2" min="0" max="60" value="{{ s.lanes2 }}"></label></div>
+        <p class="muted small" style="margin:0">Zweiter Bereich, z. B. KK zur gleichen Zeit wie LG: Stände eintragen. 0 = nur ein Bereich.</p>
+        
+        <div class="row2">
+          <label>Bezeichnung<input name="title" value="{{ s.title }}"></label>
+          <label>Ort<input name="location" value="{{ s.location }}"></label>
+        </div>
+        {{ group_pick(sgmap.get(s.id, ())) }}
+        <label class="check"><input type="checkbox" name="active" value="1" {{ 'checked' if s.active }}> Aktiv (abwählen, um es zu pausieren)</label>
+        <div class="inline">
+          <button class="btn primary">Speichern</button>
+          <button class="btn danger" name="delete" value="1" onclick="return confirm('Trainingszeit mit allen Rückmeldungen löschen?')">Löschen</button>
+        </div>
+      </form>
+    </details>
+    {% endfor %}
+
+    <details class="card slot-card" {{ 'open' if not slots }}>
+      <summary><b>+ Feste Trainingszeit hinzufügen</b></summary>
+      <form method="post" class="stack" style="margin-top:12px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="slot-grid">
+          <label>Wochentag<select name="weekday">{% for w in WEEKDAYS %}<option value="{{ loop.index0 }}" {{ 'selected' if loop.index0 == 1 }}>{{ w }}</option>{% endfor %}</select></label>
+          <label>Beginn<input type="time" name="start" value="19:00" required></label>
+          <label>Ende<input type="time" name="end" value="21:00"></label>
+          </div>
+        <div class="area-grid"><label>Bereich 1<input name="area1" value="LG" placeholder="LG"></label><label>Stände<input type="number" name="lanes" min="1" max="60" value="{{ default_lanes }}" required></label><label>Bereich 2 <span class="muted small">(optional)</span><input name="area2" value="KK" placeholder="KK"></label><label>Stände<input type="number" name="lanes2" min="0" max="60" value="0"></label></div>
+        <p class="muted small" style="margin:0">Zweiter Bereich, z. B. KK zur gleichen Zeit wie LG: Stände eintragen. 0 = nur ein Bereich.</p>
+        
+        <div class="row2">
+          <label>Bezeichnung<input name="title" value="Training"></label>
+          <label>Ort<input name="location" value="Schützenhaus"></label>
+        </div>
+        {{ group_pick(()) }}
+        <button class="btn blue">Anlegen</button>
+      </form>
+    </details>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Benutzer{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Benutzer</h1>
+  <div class="inline wrap">
+    <a class="btn" href="{{ url_for('csv_import', kind='schuetzen') }}">Importieren</a>
+    <a class="btn primary" href="{{ url_for('user_edit') }}">+ Neuer Benutzer</a>
+  </div>
+</div>
+<div class="toggle" role="group" aria-label="Benutzer anzeigen">
+  <a href="{{ url_for('users') }}" class="{{ 'on' if show == 'aktiv' }}">Aktiv ({{ counts.aktiv }})</a>
+  <a href="{{ url_for('users', zeige='gesperrt') }}" class="{{ 'on' if show == 'gesperrt' }}">Gesperrt ({{ counts.gesperrt }})</a>
+</div>
+<div class="card flush">
+  <table>
+    <thead><tr><th>Name</th><th>Rolle</th><th class="hide-sm">Mannschaften</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr class="{{ 'inactive' if not u.active }}">
+        <td><a class="strong" href="{{ url_for('user_edit', uid=u.id) }}">{{ u.name }}</a><div class="muted small">{{ u.username }}{% if u.player_id %} · ID {{ u.player_id }}{% endif %}{% if u.pass_nr %} · Pass {{ u.pass_nr }}{% endif %}{% if u.club %} · {{ u.club }}{% endif %}</div>
+          {% if not u.active %}<div class="small"><span class="pill av-nein">gesperrt</span>{% if u.locked_at %} <span class="muted">seit {{ u.locked_at[:10]|datum }}</span>{% endif %}{% if u.lock_reason %} · {{ u.lock_reason }}{% endif %}</div>{% endif %}
+          {% if u.temp_locked %}<form method="post" action="{{ url_for('user_unlock', uid=u.id) }}" class="inline small" style="margin-top:4px">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="zurueck" value="liste">
+            <span class="pill av-vielleicht">10 Fehlversuche</span><button class="linkbtn accent">Sperre aufheben</button></form>{% endif %}</td>
+        <td><span class="pill role-{{ u.role }}">{{ ROLES[u.role] }}</span></td>
+        <td class="hide-sm muted small">{{ u.teams or '–' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="3" class="muted">{{ 'Niemand ist gesperrt.' if show == 'gesperrt' else 'Keine Benutzer.' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

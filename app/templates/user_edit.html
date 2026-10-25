@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Benutzer bearbeiten' if user and user.id else 'Neuer Benutzer' }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('users') }}" class="back">← Benutzer</a></p>
+<h1>{{ user.name if user and user.id else 'Neuer Benutzer' }}{% if user and user.id and not user.active %} <span class="pill av-nein">gesperrt</span>{% endif %}</h1>
+{% set self_edit = user and user.id == me.id %}
+<form method="post" class="card stack narrow">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Vor- und Nachname<input name="name" value="{{ user.name if user }}" required></label>
+  <label>Benutzername <span class="muted small">(zum Anmelden)</span><input name="username" value="{{ user.username if user }}" autocapitalize="none" required></label>
+  <label>Rolle
+    <select name="role" {{ 'disabled' if self_edit }}>
+      {% for k, label in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if user and user.role == k }}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <p class="muted small">Admin: verwaltet alles · Mannschaftsführer: verwaltet zugewiesene Mannschaften · Trainer: legt Trainings und Sondertrainings an · Schütze: Termine sehen, zu- und absagen</p>
+  <div class="row2">
+    <label>Spieler-ID<input name="player_id" value="{{ user.player_id if user }}" placeholder="z. B. aus DISAG oder Verband"></label>
+    <label>Pass-Nr.<input name="pass_nr" value="{{ user.pass_nr if user }}"></label>
+  </div>
+  <label>Verein <span class="muted small">(nur bei Gastschützen nötig)</span><input name="club" value="{{ user.club if user }}"></label>
+  {% if all_groups %}
+  <div>
+    <div class="field-label">Trainingsgruppen</div>
+    <div class="choice-row">
+      {% for g in all_groups %}<label class="choice"><input type="checkbox" name="groups" value="{{ g.id }}" {{ 'checked' if g.id in my_groups }}><span>{{ g.name }}</span></label>{% endfor %}
+    </div>
+  </div>
+  {% else %}<p class="muted small" style="margin:0">Noch keine <a href="{{ url_for('groups') }}">Trainingsgruppen</a> angelegt.</p>{% endif %}
+  <label>{{ 'Neues Passwort setzen' if user and user.id else 'Startpasswort' }} <span class="muted small">(mind. 8 Zeichen{{ ', leer lassen = unverändert' if user and user.id }})</span>
+    <input name="password" type="text" autocomplete="off" {{ 'required minlength=8' if not (user and user.id) }}></label>
+  <button class="btn primary">Speichern</button>
+</form>
+
+{% if user and user.id and not self_edit %}
+<section class="narrow" id="zugang">
+  <h2>Zugang</h2>
+  <div class="card stack">
+    {% if user.active %}
+      <p style="margin:0">{{ user.name }} kann sich anmelden.{% if user.last_login %} <span class="muted small">Zuletzt angemeldet {{ user.last_login|seit }}.</span>{% endif %}</p>
+      {% if temp_locked %}
+      <form method="post" action="{{ url_for('user_unlock', uid=user.id) }}" class="flash info" style="margin:0">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <b>Vorübergehend gesperrt:</b> 10 falsche Passwörter in 10 Minuten. Die Sperre läuft von selbst ab.
+        <button class="btn small-btn" style="margin-top:6px">Jetzt aufheben</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('user_lock', uid=user.id) }}" class="stack" onsubmit='return confirm({{ (user.name ~ " sperren? Er wird sofort auf allen Geräten abgemeldet.")|tojson }})'>
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Grund <span class="muted small">(optional, sieht nur der Admin)</span><input name="reason" maxlength="200" placeholder="z. B. ausgetreten, Beitrag offen, Pause"></label>
+        <button class="btn danger">Zugang sperren</button>
+        <p class="muted small" style="margin:0">Gesperrte Mitglieder können sich nicht mehr anmelden und werden sofort abgemeldet. Ergebnisse und Statistik bleiben erhalten. Die Sperre lässt sich jederzeit aufheben.</p>
+      </form>
+    {% else %}
+      <p style="margin:0"><span class="pill av-nein">gesperrt</span>{% if user.locked_at %} seit {{ user.locked_at[:10]|datum }}{% endif %}{% if user.lock_reason %} · Grund: {{ user.lock_reason }}{% endif %}</p>
+      <form method="post" action="{{ url_for('user_unlock', uid=user.id) }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn primary">Entsperren</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="narrow danger-zone" id="loeschen">
+  <details class="card">
+    <summary><b>Benutzer endgültig löschen</b></summary>
+    <div class="stack" style="margin-top:10px">
+      <p style="margin:0">Das lässt sich nicht rückgängig machen. Mit gelöscht werden:</p>
+      <ul class="small" style="margin:0">
+        <li>{{ impact.results }} Ringergebnis{{ 'se' if impact.results != 1 }} und {{ impact.lineups }} Aufstellung{{ 'en' if impact.lineups != 1 }}</li>
+        <li>Mitgliedschaft in {{ impact.teams }} Mannschaft{{ 'en' if impact.teams != 1 }}{% if impact.led %} (bei {{ impact.led }} als Mannschaftsführer, dort ist dann keiner mehr eingetragen){% endif %}</li>
+        <li>{{ impact.trainings }} Trainingsrückmeldung{{ 'en' if impact.trainings != 1 }}, Zusagen, Fahrgemeinschaften, Profilbild</li>
+      </ul>
+      <p class="muted small" style="margin:0">Tipp: Wer nur ausgetreten ist, besser <a href="#zugang">sperren</a>. Dann bleiben die Ergebnisse in der Statistik.</p>
+      <form method="post" action="{{ url_for('user_delete', uid=user.id) }}" class="stack">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Zur Bestätigung den Benutzernamen „{{ user.username }}“ eintippen
+          <input name="confirm_name" autocomplete="off" autocapitalize="none" required></label>
+        <button class="btn danger">Endgültig löschen</button>
+      </form>
+    </div>
+  </details>
+</section>
+{% endif %}
+{% endblock %}

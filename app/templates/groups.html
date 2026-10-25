@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Trainingsgruppen{% endblock %}
+{% block content %}
+<h1>Trainingsgruppen</h1>
+<p class="muted">Gruppen wie „Jugend“, „Erwachsene“ oder „Jugend 1“. Ein Training mit Gruppe sehen nur deren Mitglieder (dazu Admin und Trainer). Trainings ohne Gruppe gelten für alle. Gruppen verwaltet nur der Admin.</p>
+
+<form method="post" class="card inline wrap new-group">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input name="name" placeholder="Neue Gruppe, z. B. Jugend" required aria-label="Name der neuen Gruppe">
+  <button class="btn primary">Gruppe anlegen</button>
+</form>
+
+{% if rows %}
+<div class="list" style="margin-top:12px">
+  {% for g in rows %}
+  <details class="card slot-card" id="g{{ g.id }}" {{ 'open' if rows|length == 1 }}>
+    <summary>
+      <span class="pill grp">{{ g.name }}</span>
+      <span class="small">{{ g.n }} {{ 'Mitglied' if g.n == 1 else 'Mitglieder' }} · {{ g.n_slots }} {{ 'Training' if g.n_slots == 1 else 'Trainings' }}</span>
+      <span class="edit-hint small">Bearbeiten</span>
+    </summary>
+    <form method="post" class="stack" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ g.id }}">
+      <input type="hidden" name="members_sent" value="1">
+      <label>Name<input name="name" value="{{ g.name }}" required></label>
+      <div>
+        <div class="field-label">Mitglieder</div>
+        <div class="member-grid">
+          {% for u in users %}
+          <label class="check {{ 'inactive' if not u.active }}"><input type="checkbox" name="members" value="{{ u.id }}" {{ 'checked' if u.id in members.get(g.id, ()) }}> {{ u.name }}</label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="inline">
+        <button class="btn primary">Speichern</button>
+        <button class="btn danger" name="delete" value="1" formnovalidate onclick="return confirm('Gruppe löschen? Ihre Trainings gelten danach für alle, falls keine andere Gruppe gesetzt ist.')">Löschen</button>
+      </div>
+    </form>
+  </details>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Noch keine Gruppen angelegt.</p>
+{% endif %}
+{% endblock %}

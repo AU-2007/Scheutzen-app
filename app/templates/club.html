@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Verein{% endblock %}
+{% block content %}
+<h1>Verein</h1>
+<p class="muted">Diese Angaben kann nur der Admin ändern. Der Vereinsname erscheint oben in der App.</p>
+<form method="post" class="card stack narrow">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for k, label in FIELDS.items() %}
+  <label>{{ label }}<input name="{{ k }}" value="{{ values[k] }}" {{ 'required' if k == 'club_name' }}></label>
+  {% endfor %}
+  <button class="btn primary">Speichern</button>
+</form>
+
+<section>
+  <h2>Stammdaten</h2>
+  <div class="stats">
+    <a class="stat link-stat" href="{{ url_for('users') }}"><b>{{ counts.users }}</b><span>Mitglieder</span></a>
+    <a class="stat link-stat" href="{{ url_for('teams') }}"><b>{{ counts.teams }}</b><span>Mannschaften</span></a>
+    <a class="stat link-stat" href="{{ url_for('opponents') }}"><b>{{ counts.opps }}</b><span>Gegner</span></a>
+  </div>
+  <div class="card stack" style="margin-top:10px">
+    <b>Daten importieren</b>
+    <p class="muted small" style="margin:0">Schützen oder Gegner aus einer CSV-Datei übernehmen, zum Beispiel aus dem Stammdaten-Export des DISAG OpticScore Servers (Extras → Optionen → Datenverwaltung) oder aus einer Excel-Liste (Speichern unter → CSV).</p>
+    <div class="inline wrap">
+      <a class="btn small-btn" href="{{ url_for('csv_import', kind='schuetzen') }}">Schützen importieren</a>
+      <a class="btn small-btn" href="{{ url_for('csv_import', kind='gegner') }}">Gegner importieren</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

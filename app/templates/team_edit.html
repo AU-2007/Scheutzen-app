@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Mannschaft bearbeiten' if team and team.id else 'Neue Mannschaft' }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('team', tid=team.id) if team and team.id else url_for('teams') }}" class="back">← zurück</a></p>
+<h1>{{ team.name if team and team.id else 'Neue Mannschaft' }}</h1>
+<form method="post" class="card stack narrow">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Name<input name="name" value="{{ team.name if team }}" placeholder="z. B. LG 1. Mannschaft" required></label>
+  <label>Disziplin<input name="discipline" list="disc" value="{{ team.discipline if team }}"></label>
+  <datalist id="disc">{% for d in disciplines %}<option value="{{ d }}">{% endfor %}</datalist>
+  <label>Liga / Klasse<input name="league" value="{{ team.league if team }}" placeholder="z. B. Gauliga"></label>
+  <div class="row2">
+    <label>Saison<input name="season" value="{{ team.season if team }}" placeholder="z. B. 2026/27"></label>
+    <label>Mannschafts-ID<input name="ext_id" value="{{ team.ext_id if team }}" placeholder="z. B. vom Verband"></label>
+  </div>
+  <fieldset class="editors">
+    <legend>RWK-Onlinemelder</legend>
+    <label>Link zur Klasse (Tabelle, Wettkampfplan)<input name="rwk_url" value="{{ team.rwk_url if team }}" placeholder="https://www.rwk-onlinemelder.de/online/listen/…" inputmode="url"></label>
+    <label>Name der Mannschaft dort<input name="rwk_name" value="{{ team.rwk_name if team }}" placeholder="z. B. SV Musterdorf 1"></label>
+  </fieldset>
+  {% if is_admin %}
+  <label>Mannschaftsführer
+    <select name="leader_id">
+      <option value="">– keiner –</option>
+      {% for l in leaders %}<option value="{{ l.id }}" {{ 'selected' if team and team.leader_id == l.id }}>{{ l.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <p class="muted small">Hier erscheinen nur Benutzer mit der Rolle Mannschaftsführer oder Admin.</p>
+  <fieldset class="editors">
+    <legend>Weitere Bearbeiter</legend>
+    <p class="muted small">Diese Personen dürfen die Mannschaft genauso bearbeiten wie der Mannschaftsführer: Mitglieder, Wettkämpfe, Aufstellung und Ergebnisse.</p>
+    <div class="check-grid">
+      {% for u in all_users %}
+      <label class="check"><input type="checkbox" name="editors" value="{{ u.id }}" {{ 'checked' if u.id in editors }}> {{ u.name }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% else %}
+  <p class="muted small">Mannschaftsführer und Bearbeiter legt der Admin fest.</p>
+  {% endif %}
+  <button class="btn primary">Speichern</button>
+</form>
+{% if team and team.id and is_admin %}
+<form method="post" action="{{ url_for('team_delete', tid=team.id) }}" class="narrow danger-zone" onsubmit="return confirm('Mannschaft mit allen Wettkämpfen und Ergebnissen löschen?')">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="btn danger">Mannschaft löschen</button>
+</form>
+{% endif %}
+{% endblock %}

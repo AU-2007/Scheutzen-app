@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}{{ t.name }} – {{ m.opponent }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('team', tid=t.id) }}" class="back">← {{ t.name }}</a></p>
+<div class="head-row">
+  <div>
+    <h1>{{ 'vs.' if m.home else '@' }} {{ m.opponent }}</h1>
+    <div class="muted">{{ m.date|datum }}{% if m.time %} · {{ m.time }} Uhr{% endif %} · {{ 'Heim' if m.home else 'Auswärts' }}{% if m.location %} · {{ m.location }}{% endif %}</div>
+  </div>
+  {% if manage %}<a class="btn" href="{{ url_for('match_edit', mid=m.id) }}">Termin bearbeiten</a>{% endif %}
+</div>
+
+{# ---------- Beschreibung ---------- #}
+{% if manage %}
+<details class="card desc" {{ 'open' if not m.notes and not m.meet }}>
+  <summary>
+    <span class="desc-label">Beschreibung</span>
+    {% if m.notes %}<div class="note">{{ m.notes }}</div>{% else %}<div class="muted small">Noch keine Beschreibung. Tippe hier, um eine hinzuzufügen.</div>{% endif %}
+    {% if not m.home and m.meet %}<div class="meet">Treffpunkt: <b>{{ m.meet }}</b></div>{% endif %}
+    <span class="edit-hint small">Bearbeiten</span>
+  </summary>
+  <form method="post" action="{{ url_for('match_notes', mid=m.id) }}" class="stack desc-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Beschreibung<textarea name="notes" rows="4" placeholder="z. B. 30 Minuten vorher zum Einschießen da sein, Vereinsjacke mitbringen">{{ m.notes }}</textarea></label>
+    {% if not m.home %}<label>Treffpunkt &amp; Abfahrt<input name="meet" value="{{ m.meet }}" placeholder="z. B. Schützenhaus, 17:45 Uhr"></label>{% endif %}
+    <button class="btn primary">Speichern</button>
+  </form>
+</details>
+{% elif m.notes or (not m.home and m.meet) %}
+<div class="card desc">
+  {% if m.notes %}<div class="note">{{ m.notes }}</div>{% endif %}
+  {% if not m.home and m.meet %}<div class="meet">Treffpunkt: <b>{{ m.meet }}</b></div>{% endif %}
+</div>
+{% endif %}
+
+{# ---------- Verlegung ---------- #}
+{% if open_move %}
+<div class="move-banner" id="verlegung">
+  <b>Verlegung beantragt</b>
+  <span>{{ open_move.old_date|datum }}{% if open_move.old_time %}, {{ open_move.old_time }}{% endif %} → <b>{{ open_move.new_date|datum }}{% if open_move.new_time %}, {{ open_move.new_time }} Uhr{% endif %}</b></span>
+  {% if open_move.reason %}<span class="small">Grund: {{ open_move.reason }}</span>{% endif %}
+  <span class="small muted">Noch nicht bestätigt. Bis dahin gilt der bisherige Termin.</span>
+</div>
+{% endif %}
+{% if manage %}
+<section id="{{ 'verlegung-form' if open_move else 'verlegung' }}">
+  {% if open_move %}
+  <div class="card stack">
+    <b>Antrag an Gegner und Rundenwettkampfleiter</b>
+    <pre class="report" id="move-text">{{ move_text }}</pre>
+    <div class="inline wrap">
+      <button type="button" class="btn small-btn" id="copy-move">Text kopieren</button>
+      <a class="btn small-btn" href="{{ t.rwk_url or RWK_HOME }}" target="_blank" rel="noopener">RWK-Onlinemelder ↗</a>
+    </div>
+    <p class="muted small" style="margin:0">Schick den Text per Mail oder Messenger an den Gegner und den Rundenwettkampfleiter. Sobald alle zugestimmt haben, hier bestätigen.</p>
+    <form method="post" action="{{ url_for('match_move', mid=m.id) }}" class="inline wrap">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn primary" name="action" value="bestaetigt">Bestätigt, Termin ändern</button>
+      <button class="btn" name="action" value="abgelehnt">Abgelehnt</button>
+      <button class="btn" name="action" value="zurueckgezogen">Zurückziehen</button>
+    </form>
+  </div>
+  <script>
+    document.getElementById('copy-move').addEventListener('click', function () {
+      var el = document.getElementById('move-text'), b = this;
+      (navigator.clipboard ? navigator.clipboard.writeText(el.textContent) : Promise.reject()).then(function () { b.textContent = 'Kopiert'; })
+        .catch(function () { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
+    });
+  </script>
+  {% elif m.date >= today %}
+  <details class="card">
+    <summary class="strong" style="cursor:pointer">Termin verlegen</summary>
+    <form method="post" action="{{ url_for('match_move', mid=m.id) }}" class="stack" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="antrag">
+      <div class="row2">
+        <label>Neues Datum<input type="date" name="new_date" required></label>
+        <label>Uhrzeit<input type="time" name="new_time" value="{{ m.time }}"></label>
+      </div>
+      <label>Grund<input name="reason" placeholder="z. B. Schützenfest, zu wenige Schützen verfügbar"></label>
+      <button class="btn primary">Verlegung beantragen</button>
+      <p class="muted small" style="margin:0">Der Termin ändert sich erst, wenn du die Zustimmung bestätigst. Danach sagen alle neu zu oder ab.</p>
+    </form>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+{% if moves and (moves|length > 1 or not open_move) %}
+<details class="move-history">
+  <summary class="small muted">Verlauf der Verlegungen ({{ moves|length }})</summary>
+  <ul class="small">
+    {% for mv in moves %}<li>{{ mv.old_date|datum }} → {{ mv.new_date|datum }}{% if mv.new_time %} {{ mv.new_time }}{% endif %} · <b>{{ {'offen':'beantragt','bestaetigt':'bestätigt','abgelehnt':'abgelehnt','zurueckgezogen':'zurückgezogen'}[mv.status] }}</b>{% if mv.by_name %} · {{ mv.by_name }}{% endif %}{% if mv.reason %} · {{ mv.reason }}{% endif %}</li>{% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+{% if total is not none %}
+<div class="score card {{ outcome or '' }}">
+  <div><span class="muted small">{{ t.name }}</span><b>{{ total|ringe }}</b></div>
+  <div class="vs">:</div>
+  <div><span class="muted small">{{ m.opponent }}</span><b>{{ m.opponent_score|ringe }}</b></div>
+  {% if outcome %}<div class="result-label">{{ {'sieg':'Sieg','niederlage':'Niederlage','unentschieden':'Unentschieden'}[outcome] }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if member %}
+<section>
+  <h2>Deine Rückmeldung</h2>
+  <form method="post" action="{{ url_for('match_availability', mid=m.id) }}" class="avail big">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for k, label in AVAIL.items() %}
+    <button name="status" value="{{ k }}" class="seg {{ k }} {{ 'on' if my_status == k }}">{{ label }}</button>
+    {% endfor %}
+  </form>
+</section>
+{% endif %}
+
+{# ---------- Fahrgemeinschaft (nur auswärts) ---------- #}
+{% if pool %}
+<section id="fahrt">
+  <div class="head-row">
+    <h2>Fahrgemeinschaft</h2>
+    <span class="small muted">{{ pool.free }} {{ 'Platz' if pool.free == 1 else 'Plätze' }} frei · {{ pool.open|length }} {{ 'sucht' if pool.open|length == 1 else 'suchen' }}</span>
+  </div>
+
+  {% if member %}
+  {% set mine = pool.mine %}
+  <form method="post" action="{{ url_for('match_ride', mid=m.id) }}" class="card stack ride-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="ride-opts">
+      {% for k, label in RIDE_MODES.items() %}
+      <label class="ride-opt"><input type="radio" name="mode" value="{{ k }}" {{ 'checked' if mine and mine.mode == k }} required><span>{{ label }}</span></label>
+      {% endfor %}
+    </div>
+    <div class="ride-extra" data-for="fahrer">
+      <label>Freie Plätze im Auto
+        <select name="seats">{% for n in range(0, 8) %}<option value="{{ n }}" {{ 'selected' if (mine and mine.mode == 'fahrer' and mine.seats == n) or (not (mine and mine.mode == 'fahrer') and n == 3) }}>{{ n }}</option>{% endfor %}</select>
+      </label>
+    </div>
+    <div class="ride-extra" data-for="mitfahrer">
+      <label>Bei wem möchtest du mitfahren?
+        <select name="driver_id">
+          <option value="">Egal, wer Platz hat</option>
+          {% for d in pool.drivers if d.user_id != me.id %}
+          {% set full = d.passengers|length >= d.seats and not (mine and mine.driver_id == d.user_id) %}
+          <option value="{{ d.user_id }}" {{ 'selected' if mine and mine.driver_id == d.user_id }} {{ 'disabled' if full }}>{{ d.name }}{{ ' (voll)' if full else ' (' ~ (d.seats - d.passengers|length) ~ ' frei)' }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="inline">
+      <button class="btn primary">Speichern</button>
+      {% if mine %}<button class="btn" name="mode" value="keine" formnovalidate>Angabe löschen</button>{% endif %}
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="pool">
+    {% for d in pool.drivers %}
+    <div class="car card">
+      <div class="car-head"><span class="car-ico" aria-hidden="true"></span><b>{{ d.name }}</b><span class="muted small">{{ d.passengers|length }}/{{ d.seats }} Plätze belegt</span></div>
+      <div class="seats">
+        {% for p in d.passengers %}<span class="seat taken">{{ p.name }}</span>{% endfor %}
+        {% for _ in range(d.seats - d.passengers|length) %}<span class="seat free">frei</span>{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if pool.open %}
+    <div class="card pool-row"><span class="pill av-vielleicht">Sucht Mitfahrt</span> {{ pool.open|map(attribute='name')|join(', ') }}</div>
+    {% endif %}
+    {% if pool.self %}
+    <div class="card pool-row"><span class="pill open">Eigene Anreise</span> {{ pool.self|map(attribute='name')|join(', ') }}</div>
+    {% endif %}
+    {% if not pool.drivers and not pool.open and not pool.self %}
+    <p class="muted">Noch hat niemand eingetragen, wie er anreist.</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------- Ergebnis für den RWK-Onlinemelder ---------- #}
+{% if manage and total is not none %}
+{% set lined = rows|selectattr('in_lineup')|list %}
+{% set report %}{{ t.name }} {{ 'vs.' if m.home else '@' }} {{ m.opponent }} ({{ m.date|datum }})
+{% for r in lined %}{{ r.name }}: {{ r.rings|ringe }}
+{% endfor %}Gesamt: {{ total|ringe }}{% if m.opponent_score is not none %} : {{ m.opponent_score|ringe }}{% endif %}{% endset %}
+<section>
+  <div class="card rwk-report stack">
+    <div class="head-row"><b><span class="rwk-logo" aria-hidden="true">RWK</span> Ergebnis melden</b>
+      <a class="btn small-btn" href="{{ t.rwk_url or RWK_HOME }}" target="_blank" rel="noopener">Im RWK-Onlinemelder melden ↗</a></div>
+    <pre class="report" id="report">{{ report }}</pre>
+    <div class="inline"><button type="button" class="btn small-btn" id="copy-report">Ergebnis kopieren</button><span class="muted small" id="copy-ok" hidden>Kopiert</span></div>
+    <p class="muted small" style="margin:0">Der RWK-Onlinemelder hat keine Schnittstelle. Die Meldung trägst du dort selbst ein. Hier hast du alle Zahlen beisammen.</p>
+  </div>
+</section>
+<script>
+  document.getElementById('copy-report').addEventListener('click', function () {
+    var txt = document.getElementById('report').textContent, ok = document.getElementById('copy-ok');
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { ok.hidden = false; })
+      .catch(function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('report')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
+  });
+</script>
+{% endif %}
+
+{# ---------- Aufstellung ---------- #}
+<section>
+  <div class="head-row">
+    <h2>{{ 'Aufstellung & Ergebnisse' if manage else 'Schützen' }}</h2>
+    <div class="small muted">✔ {{ counts.ja }} · ? {{ counts.vielleicht }} · ✘ {{ counts.nein }}</div>
+  </div>
+  {% macro tag(r) %}{% if r.guest %} <span class="pill sub">Aushilfe</span>{% elif r.reserve %} <span class="pill sub">Ersatz</span>{% endif %}{% endmacro %}
+  {% if manage %}
+  <form method="post" action="{{ url_for('match_lineup', mid=m.id) }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="card flush">
+      <table class="lineup">
+        <thead><tr><th>Auf&shy;gestellt</th><th>Schütze</th><th>Rückm.</th><th class="num">Ringe</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td><input type="checkbox" name="lineup" value="{{ r.id }}" {{ 'checked' if r.in_lineup }} aria-label="{{ r.name }} aufstellen"></td>
+            <td>{{ r.name }}{{ tag(r) }}</td>
+            <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
+            <td class="num"><input class="rings" name="rings_{{ r.id }}" inputmode="decimal" value="{{ r.rings|ringe if r.rings is not none }}" placeholder="–"></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="muted">Die Mannschaft hat noch keine Schützen.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="row2 end">
+      <label>Ringe Gegner<input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m.opponent_score is not none }}"></label>
+      <button class="btn primary">Speichern</button>
+    </div>
+    <p class="muted small">Haken setzen = aufgestellt. Ringe nur bei aufgestellten Schützen. Zehntel mit Komma, z. B. 389,4.</p>
+  </form>
+  {% if helpers %}
+  <form method="post" action="{{ url_for('match_add_helper', mid=m.id) }}" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="user_id" required aria-label="Ersatz aus anderer Mannschaft">
+      <option value="">Ersatz aus anderer Mannschaft …</option>
+      {% for h in helpers %}<option value="{{ h.id }}">{{ h.name }}</option>{% endfor %}
+    </select>
+    <button class="btn">Aufstellen</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Schütze</th><th>Rückmeldung</th><th class="num">Ringe</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr class="{{ 'lined' if r.in_lineup }}">
+          <td>{{ r.name }}{{ tag(r) }}{% if r.in_lineup %} <span class="pill gold">aufgestellt</span>{% endif %}</td>
+          <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
+          <td class="num strong">{{ r.rings|ringe if r.in_lineup else '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+<script>
+  // Zusatzfelder der Fahrgemeinschaft passend zur Auswahl zeigen
+  (function () {
+    var form = document.querySelector('.ride-form');
+    if (!form) return;
+    function sync() {
+      var sel = form.querySelector('input[name=mode]:checked');
+      form.querySelectorAll('.ride-extra').forEach(function (el) { el.hidden = !sel || el.dataset.for !== sel.value; });
+    }
+    form.addEventListener('change', sync); sync();
+  })();
+</script>
+{% endblock %}

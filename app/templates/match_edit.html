@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Wettkampf bearbeiten' if m and m.id else 'Neuer Wettkampf' }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('match', mid=m.id) if m and m.id else url_for('team', tid=t.id) }}" class="back">← zurück</a></p>
+<h1>{{ 'Wettkampf bearbeiten' if m and m.id else 'Neuer Wettkampf' }}</h1>
+<p class="muted">{{ t.name }}</p>
+<form method="post" class="card stack narrow">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="row2">
+    <label>Datum<input type="date" name="date" value="{{ m.date if m }}" required></label>
+    <label>Uhrzeit<input type="time" name="time" value="{{ m.time if m }}"></label>
+  </div>
+  <label>Gegner<input name="opponent" id="opponent" list="opp-list" value="{{ m.opponent if m }}" placeholder="z. B. SV Tell Musterdorf 1" autocomplete="off" required></label>
+  <datalist id="opp-list">{% for o in opponents %}<option value="{{ o.label }}" data-loc="{{ o.location }}">{% endfor %}</datalist>
+  {% if me.role in ('admin', 'leader') %}<p class="muted small" style="margin:-6px 0 0">Liste der Gegner: <a href="{{ url_for('opponents') }}">Gegner verwalten</a></p>{% endif %}
+  <div class="seg-group">
+    <label class="radio"><input type="radio" name="home" value="1" {{ 'checked' if not m or m.home }}> Heim</label>
+    <label class="radio"><input type="radio" name="home" value="0" {{ 'checked' if m and not m.home }}> Auswärts</label>
+  </div>
+  <label>Ort<input name="location" value="{{ m.location if m }}" placeholder="z. B. Schützenhaus"></label>
+  <label>Ringe Gegner <span class="muted small">(optional, auch später möglich)</span><input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m and m.opponent_score is not none }}"></label>
+  <label>Treffpunkt &amp; Abfahrt <span class="muted small">(nur auswärts)</span><input name="meet" value="{{ m.meet if m }}" placeholder="z. B. Schützenhaus, 17:45 Uhr"></label>
+  <label>Beschreibung<textarea name="notes" rows="3" placeholder="z. B. 30 Minuten vorher zum Einschießen da sein">{{ m.notes if m }}</textarea></label>
+  <button class="btn primary">Speichern</button>
+</form>
+{% if m and m.id %}
+<form method="post" action="{{ url_for('match_delete', mid=m.id) }}" class="narrow danger-zone" onsubmit="return confirm('Wettkampf mit Aufstellung und Ergebnissen löschen?')">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="btn danger">Wettkampf löschen</button>
+</form>
+{% endif %}
+<script>
+  // Ort eines bekannten Gegners bei Auswärtsterminen übernehmen
+  (function () {
+    var opp = document.getElementById('opponent'), loc = document.querySelector('input[name=location]');
+    var known = {};
+    document.querySelectorAll('#opp-list option').forEach(function (o) { known[o.value] = o.dataset.loc; });
+    opp.addEventListener('change', function () {
+      var away = document.querySelector('input[name=home][value="0"]').checked;
+      if (away && known[opp.value] && !loc.value) loc.value = known[opp.value];
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_agenda.html" import agenda_days with context %}
+{% block title %}Übersicht{% endblock %}
+{% block content %}
+<h1>Hallo, {{ me.name.split(' ')[0] }}</h1>
+
+<div class="agenda-summary">
+  <span class="muted small">Diese Woche:</span>
+  <span class="chip match"><i></i>{{ n_matches }} {{ 'Wettkampf' if n_matches == 1 else 'Wettkämpfe' }}</span>
+  <span class="chip tr"><i></i>{{ n_trainings }} {{ 'Training' if n_trainings == 1 else 'Trainings' }}</span>
+</div>
+{% if pending %}
+<a class="todo" href="#agenda">
+  <b>{{ pending }}</b><span>{{ 'Rückmeldung ist' if pending == 1 else 'Rückmeldungen sind' }} noch offen</span>
+  <span class="muted small">Gelb markiert in der Liste unten</span>
+</a>
+{% endif %}
+
+<section id="agenda" class="agenda">
+  {% if days %}{{ agenda_days(days, url_for('index')) }}
+  {% else %}<div class="card"><p class="muted" style="margin:0">Diese Woche stehen keine Termine mehr an.</p></div>{% endif %}
+
+  <a class="btn more" href="{{ url_for('schedule') }}">
+    Alle Termine im Kalender
+    {% if next_later %}<span class="muted small">Nächster Wettkampf danach: {{ next_later.date|datum }}, {{ next_later.opponent }}</span>{% endif %}
+  </a>
+</section>
+
+<section>
+  <h2>Meine Mannschaften</h2>
+  {% if my_teams %}
+  <div class="team-chips">
+    {% for t in my_teams %}
+    <a class="team-chip" href="{{ url_for('team', tid=t.id) }}"><b>{{ t.name }}</b><span class="muted small">{{ t.discipline }}{% if t.is_leader %} · MF{% endif %}</span></a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Du bist noch keiner Mannschaft zugeordnet.</p>
+  {% endif %}
+</section>
+
+{% if my_results %}
+<section>
+  <details class="results">
+    <summary><h2>Meine letzten Ergebnisse</h2></summary>
+    <div class="card flush">
+      <table>
+        <tbody>
+        {% for r in my_results %}
+          <tr>
+            <td class="nowrap">{{ r.date[8:10] }}.{{ r.date[5:7] }}.</td>
+            <td><a href="{{ url_for('match', mid=r.id) }}">{{ r.team_name }} – {{ r.opponent }}</a></td>
+            <td class="num strong">{{ r.rings|ringe }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+{% endif %}
+{% endblock %}

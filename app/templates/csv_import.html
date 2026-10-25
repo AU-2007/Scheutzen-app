@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Schützen' if kind == 'schuetzen' else 'Gegner' }} importieren{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('club') if me.role == 'admin' else url_for('opponents') }}" class="back">← zurück</a></p>
+<h1>{{ 'Schützen' if kind == 'schuetzen' else 'Gegner' }} importieren</h1>
+
+{% if not preview %}
+<div class="card stack narrow">
+  {% if kind == 'schuetzen' %}
+  <p style="margin:0">Mögliche Quellen:</p>
+  <ul class="steps">
+    <li><b>DISAG OpticScore Server:</b> Extras → Optionen → Datenverwaltung → Import/Export von Stammdaten, als CSV exportieren.</li>
+    <li><b>Excel- oder Mitgliederliste:</b> Speichern unter → CSV.</li>
+  </ul>
+  <p class="muted small" style="margin:0">Schützen, die es schon gibt (gleiche Spieler-ID oder gleicher Name), werden nur ergänzt. Neue bekommen einen Benutzernamen und ein Startpasswort, das du nach dem Import siehst.</p>
+  {% else %}
+  <p class="muted small" style="margin:0">Eine CSV-Datei mit Verein, Mannschaft und Ort, zum Beispiel aus einer Excel-Liste (Speichern unter → CSV). Doppelte Einträge werden erkannt.</p>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>CSV-Datei<input type="file" name="csv" accept=".csv,.txt,text/csv" required></label>
+    <button class="btn primary">Datei prüfen</button>
+  </form>
+</div>
+{% else %}
+<p class="muted">{{ preview.count }} Zeilen gefunden. Ordne die Spalten zu und prüfe die Vorschau.</p>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="save">
+  <textarea name="data" hidden>{{ preview.data }}</textarea>
+  <label class="check" style="margin-bottom:10px"><input type="checkbox" name="header" value="1" {{ 'checked' if preview.header }}> Erste Zeile enthält Spaltennamen</label>
+  <div class="card flush">
+    <table class="map-table">
+      <thead>
+        <tr>{% for f in preview.mapping %}
+          <th><select name="col_{{ loop.index0 }}" aria-label="Spalte {{ loop.index }}">
+            {% for k, label in fields.items() %}<option value="{{ k }}" {{ 'selected' if k == f }}>{{ label }}</option>{% endfor %}
+          </select></th>
+        {% endfor %}</tr>
+      </thead>
+      <tbody>
+        {% for r in preview.rows %}<tr class="{{ 'hdr' if loop.first and preview.header }}">{% for c in r %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if preview.count > preview.rows|length %}<p class="muted small">… und {{ preview.count - preview.rows|length }} weitere Zeilen.</p>{% endif %}
+  <div class="inline" style="margin-top:14px">
+    <button class="btn primary">Importieren</button>
+    <a class="btn" href="{{ url_for('csv_import', kind=kind) }}">Andere Datei</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

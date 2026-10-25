@@ -1,0 +1,78 @@
+{# Gemeinsame Darstellung von Wettkämpfen (grün) und Trainings (blau) für Übersicht und Termine #}
+{% from "_tr_buttons.html" import tr_buttons with context %}
+
+{% macro agenda_item(it, back, past=False) %}
+{% if it.kind == 'match' %}
+  {% set open = not past and it.is_member and not it.my_status %}
+  <div class="ag-item match {{ 'is-open' if open }} {{ 'past' if past }}" id="m{{ it.id }}">
+    <a class="ag-main" href="{{ url_for('match', mid=it.id) }}">
+      <div class="ag-time">{{ it.time or '–' }}</div>
+      <div class="ag-body">
+        <div class="ag-kind">Wettkampf · {{ 'Heim' if it.home else 'Auswärts' }}{% if open %} <span class="pill open-badge">offen</span>{% endif %}</div>
+        <div class="strong">{{ it.team_name }} {{ 'vs.' if it.home else '@' }} {{ it.opponent }}</div>
+        <div class="ag-meta">
+          {% if past %}
+            {% if it.total is not none %}<span class="small strong">{{ it.total|ringe }} : {{ it.opponent_score|ringe }}</span>{% if it.outcome %}<span class="dot {{ it.outcome }}"></span>{% endif %}{% else %}<span class="muted small">kein Ergebnis</span>{% endif %}
+          {% else %}
+            {% if it.location %}<span class="muted small">{{ it.location }}</span>{% endif %}
+            {% if it.move_date %}<span class="pill av-vielleicht">Verlegung beantragt → {{ it.move_date[8:10] }}.{{ it.move_date[5:7] }}.</span>{% endif %}
+            {% if it.in_lineup %}<span class="pill gold">aufgestellt</span>{% endif %}
+            {% if not it.home and it.is_member %}<span class="pill {{ 'open' if not it.my_ride }}">Fahrt: {{ {'fahrer':'ich fahre','mitfahrer':'Mitfahrt','selbst':'eigene Anreise'}.get(it.my_ride, 'offen') }}</span>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>
+    {% if it.is_member and not past %}
+    <form method="post" action="{{ url_for('match_availability', mid=it.id) }}" class="avail">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="back" value="{{ back }}">
+      {% for k, label in AVAIL.items() %}
+      <button name="status" value="{{ k }}" class="seg {{ k }} {{ 'on' if it.my_status == k }}">{{ label }}</button>
+      {% endfor %}
+    </form>
+    {% endif %}
+  </div>
+{% else %}
+  {% set open = not past and it.for_me and not it.cancelled and not it.my_status %}
+  <div class="ag-item training {{ 'is-open' if open }} {{ 'cancelled' if it.cancelled }} {{ 'special' if it.special }} {{ 'past' if past }}" id="t{{ it.slot_id }}-{{ it.date }}">
+    <a class="ag-main" href="{{ url_for('training_detail', slot_id=it.slot_id, iso=it.date) }}">
+      <div class="ag-time">{{ it.start }}</div>
+      <div class="ag-body">
+        <div class="ag-kind">{{ 'Sondertraining' if it.special else 'Training' }}{% if it.end %} · bis {{ it.end }}{% endif %}{% if open %} <span class="pill open-badge">offen</span>{% endif %}</div>
+        {% if it.cancelled %}
+        <div class="strong">{{ it.title }} <span class="pill cancel">fällt aus{% if it.reason %}: {{ it.reason }}{% endif %}</span></div>
+        {% else %}
+        <div class="strong">{{ it.title }}{% for g in it.groups %} <span class="pill grp">{{ g.name }}</span>{% endfor %}</div>
+        {% if it.note %}<div class="small">{{ it.note }}</div>{% endif %}
+        <div class="ag-meta">
+          {% if past %}
+            <span class="small">{{ it.booked }} {{ 'war' if it.booked == 1 else 'waren' }} da</span>
+            {% if it.my_status %}<span class="pill {{ 'tr' if it.my_status == 'ja' else ('av-vielleicht' if it.my_status == 'spaeter' else 'av-nein') }}">{{ {'ja':'zugesagt','spaeter':'später','nein':'abgesagt'}[it.my_status] }}</span>{% endif %}
+          {% else %}
+            {% if it.areas %}
+            {% for a in it.areas if a.no %}<span class="small area-free"><b>{{ a.name }}</b> {{ [a.lanes - a.booked, 0]|max }}/{{ a.lanes }} frei</span>{% endfor %}
+            {% if it.my_area and it.my_status in ('ja','spaeter') %}<span class="pill area">du: {{ it.areas[it.my_area - 1].name }}</span>{% endif %}
+            {% else %}
+            <span class="lanes-meter" aria-hidden="true">{% for n in range(it.lanes) %}<i class="{{ 'on' if n < it.booked }}"></i>{% endfor %}</span>
+            <span class="small"><b>{{ it.free }}</b> von {{ it.lanes }} Ständen frei</span>
+            {% endif %}
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>
+    {% if not it.cancelled and not past %}{{ tr_buttons(it, back) }}{% endif %}
+  </div>
+{% endif %}
+{% endmacro %}
+
+{% macro agenda_days(days, back, past=False) %}
+  {% for day in days %}
+  <div class="day">
+    <div class="day-label {{ 'today' if day.date == today }}">{{ day.date|tag }}</div>
+    {% for it in day['items'] %}{{ agenda_item(it, back, past) }}{% endfor %}
+  </div>
+  {% endfor %}
+{% endmacro %}

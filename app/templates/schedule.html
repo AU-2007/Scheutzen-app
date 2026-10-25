@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_agenda.html" import agenda_days with context %}
+{% block title %}Termine{% endblock %}
+{% block content %}
+{% set qs_alle = '1' if all_teams else '' %}
+<div class="head-row">
+  <h1>Termine</h1>
+  {% if can_edit_training %}
+  <div class="inline wrap">
+    <a class="btn small-btn special" href="{{ url_for('training_slots') }}#sonder">+ Sondertraining</a>
+    <a class="btn small-btn" href="{{ url_for('training_slots') }}">Trainingszeiten</a>
+  </div>
+  {% endif %}
+</div>
+<div class="head-row" style="margin-top:6px">
+  <div class="toggle" role="group" aria-label="Welche Mannschaften">
+    <a href="{{ url_for('schedule', monat=month.strftime('%Y-%m'), filter=None if flt == 'alle' else flt) }}" class="{{ 'on' if not all_teams }}">Meine</a>
+    <a href="{{ url_for('schedule', monat=month.strftime('%Y-%m'), alle=1, filter=None if flt == 'alle' else flt) }}" class="{{ 'on' if all_teams }}">Alle Mannschaften</a>
+  </div>
+</div>
+
+<div class="card cal">
+  <div class="cal-head">
+    <a class="cal-nav" href="{{ url_for('schedule', monat=prev_m, alle=qs_alle or None, filter=None if flt == 'alle' else flt) }}" aria-label="Vorheriger Monat">‹</a>
+    <b>{{ month_name }} {{ month.year }}</b>
+    <a class="cal-nav" href="{{ url_for('schedule', monat=next_m, alle=qs_alle or None, filter=None if flt == 'alle' else flt) }}" aria-label="Nächster Monat">›</a>
+  </div>
+  <div class="cal-grid">
+    {% for wd in ['Mo','Di','Mi','Do','Fr','Sa','So'] %}<div class="cal-wd">{{ wd }}</div>{% endfor %}
+    {% for week in weeks %}{% for d in week %}
+      {% set iso = d.isoformat() %}{% set ms = by_day.get(iso, []) %}{% set trs = tr_by_day.get(iso, []) %}
+      {% set cls = ['cal-day'] %}
+      {% if d.month != month.month %}{% set _ = cls.append('out') %}{% endif %}
+      {% if d == today_d %}{% set _ = cls.append('today') %}{% endif %}
+      {% if ms %}{% set _ = cls.append('has') %}{% endif %}
+      {% if trs %}{% set _ = cls.append('has-tr') %}{% endif %}
+      {% if ms %}
+      <a class="{{ cls|join(' ') }}" href="#m{{ ms[0].id }}" title="{% for m in ms %}{{ m.team_name }} – {{ m.opponent }}{{ '; ' if not loop.last }}{% endfor %}{% for t in trs %}; {{ t.title }} {{ t.start }}{% endfor %}">
+        <span>{{ d.day }}</span><i class="marks">{% for m in ms[:2] %}<em class="{{ 'mine' if m.in_lineup else '' }}"></em>{% endfor %}{% if trs %}<em class="tr"></em>{% endif %}</i>
+      </a>
+      {% elif trs %}
+      <a class="{{ cls|join(' ') }}" href="{{ url_for('training_detail', slot_id=trs[0].slot_id, iso=iso) }}" title="{% for t in trs %}{{ t.title }} {{ t.start }} ({{ t.free }} frei){{ '; ' if not loop.last }}{% endfor %}">
+        <span>{{ d.day }}</span><i class="marks"><em class="tr"></em></i>
+      </a>
+      {% else %}
+      <div class="{{ cls|join(' ') }}"><span>{{ d.day }}</span></div>
+      {% endif %}
+    {% endfor %}{% endfor %}
+  </div>
+  <div class="cal-legend muted small"><span><em></em> Wettkampf</span><span><em class="mine"></em> du bist aufgestellt</span><span><em class="tr"></em> Training</span></div>
+</div>
+
+<nav class="filter-bar" aria-label="Termine filtern" id="liste">
+  {% for k, label in FILTERS.items() %}
+  <a href="{{ url_for('schedule', monat=month.strftime('%Y-%m'), alle=qs_alle or None, filter=None if k == 'alle' else k) }}#liste"
+     class="chip-f {{ k }} {{ 'on' if flt == k }}" {{ 'aria-current=true' if flt == k }}>{{ label }}<span>{{ counts[k] }}</span></a>
+  {% endfor %}
+</nav>
+
+<section class="agenda">
+  <h2>Anstehend{% if flt != 'alle' %} · {{ FILTERS[flt] }}{% endif %} ({{ n_up }})</h2>
+  {% if up_days %}{{ agenda_days(up_days, request.full_path) }}
+  {% elif flt == 'offen' %}<p class="muted">Alles beantwortet. Keine offenen Rückmeldungen.</p>
+  {% else %}<p class="muted">Keine passenden Termine.{% if flt != 'alle' %} <a href="{{ url_for('schedule', monat=month.strftime('%Y-%m'), alle=qs_alle or None) }}#liste">Filter zurücksetzen</a>{% endif %}</p>{% endif %}
+</section>
+
+{% if past_days %}
+<section>
+  <details class="past-list">
+    <summary><h2>Vergangen ({{ n_past }})</h2></summary>
+    <div class="agenda" style="margin-top:0">{{ agenda_days(past_days, request.full_path, True) }}</div>
+  </details>
+</section>
+{% endif %}
+<script>
+  // Sprung auf einen vergangenen Termin: Liste aufklappen
+  (function () {
+    function openPast() {
+      var el = location.hash && document.getElementById(location.hash.slice(1));
+      var d = el && el.closest('details');
+      if (d) { d.open = true; el.scrollIntoView({ block: 'center' }); }
+    }
+    window.addEventListener('hashchange', openPast); openPast();
+  })();
+</script>
+{% endblock %}

@@ -59,8 +59,15 @@ Protokolle werden nach 90 Tagen gelöscht. Läuft die App hinter einem Reverse P
 - **Mein Profil** (Menü oben rechts): Profilbild, Passwort, hell/dunkel, Akzentfarbe und eine kleine Statistik.
 - **Trainingsgruppen** (nur Admin, Menü oben rechts): Gruppen wie Jugend oder Erwachsene anlegen und Mitglieder zuordnen. Beim Training wählt Admin oder Trainer, für welche Gruppen es gilt. Mitglieder sehen nur ihre Trainings; ohne Gruppe gilt ein Training für alle.
 - **Verein** (nur Admin): Vereinsname, Vereins-ID, Ort, Verband.
-- **Gegner** (Admin, Mannschaftsführer): Liste der Gegner-Vereine und -Mannschaften, die beim Anlegen eines Wettkampfs vorgeschlagen werden.
+- **Gegner** (Admin, Mannschaftsführer): Jeder Gegnerverein wird einmal angelegt, mit Ort, Mannschaften (je Disziplin) und Schützen (mit Pass-Nr.). Beim Wettkampf wählt man die Gegnermannschaft aus der Liste, der Ort wird bei Auswärtskämpfen übernommen. Ein RWK-Import verknüpft passende Gegner automatisch.
 - **Import** (Verein → Daten importieren): Schützen (Name, Spieler-ID, Pass-Nr., Verein) oder Gegner aus einer CSV-Datei, zum Beispiel aus dem Stammdaten-Export des DISAG OpticScore Servers oder aus Excel. Neue Schützen bekommen ein Startpasswort, das nach dem Import einmal angezeigt wird.
+
+## Wettkampf: Gegnerschützen, Standplan, DISAG
+
+- **Gegnerschützen:** Beim Wettkampf die Schützen des Gegners eintragen: aus der Gegnerliste, alle Stammschützen der Mannschaft mit einem Klick oder frei (wahlweise gleich in die Gegnerliste übernehmen). Ihre Ringe trägt man neben den eigenen ein, die Summe des Gegners rechnet die App aus.
+- **Standplan:** Verteilt eigene und Gegnerschützen auf die Stände, bei Bedarf auf mehrere Durchgänge (z. B. 3 + 3 Schützen auf 4 KK-Stände = 2 Durchgänge). Wahlweise Paarungen nebeneinander oder erst Heim, dann Gast. Von Hand änderbar, Doppelbelegungen werden gemeldet. Alle Schützen sehen den Plan, mit Startzeit je Durchgang. Druckbar.
+- **Standanzahl:** Unter *Verein* (Admin): Stände LG, Stände KK und Minuten pro Durchgang. Pro Wettkampf im Standplan änderbar. Ob LG oder KK, erkennt die App an der Disziplin der Mannschaft.
+- **DISAG-Startliste:** Im Standplan als CSV herunterladen (Semikolon, Windows-Zeichensatz): Durchgang, Startzeit, Stand, Nachname, Vorname, Pass-Nr., Spieler-ID, Verein, Mannschaft, Heim/Gast, Disziplin, Datum, Wettkampf. Die Spalten lassen sich an das Importformat des OpticScore Servers anpassen (`DISAG_COLUMNS` in `app.py`).
 
 ## RWK-Onlinemelder
 

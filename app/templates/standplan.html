@@ -9,7 +9,7 @@
   </div>
   <div class="inline wrap no-print">
     <button type="button" class="btn small-btn" onclick="window.print()">Drucken</button>
-    {% if manage %}<a class="btn small-btn primary" href="{{ url_for('disag_export', mid=m.id) }}">DISAG-Startliste</a>{% endif %}
+    {% if manage %}<a class="btn small-btn primary" href="{{ url_for('disag_flex_export', mid=m.id) }}">DISAG-Datei</a>{% endif %}
   </div>
 </div>
 
@@ -92,8 +92,12 @@
 <section class="no-print">
   <div class="card stack">
     <b>Auf die DISAG-Anlage übertragen</b>
-    <p class="muted small" style="margin:0">Die Startliste enthält je Schütze Durchgang, Startzeit, Stand, Name, Pass-Nr., Spieler-ID, Verein, Mannschaft und Disziplin (CSV, Semikolon, Windows-Zeichensatz). Im OpticScore Server über den Import von Wettkampfdaten laden.</p>
-    <div><a class="btn small-btn" href="{{ url_for('disag_export', mid=m.id) }}">Startliste herunterladen (.csv)</a></div>
+    <p class="muted small" style="margin:0"><b>FLEX-Import</b> („Schützen mit Verein und Waffenart“): Ausweisnummer, Name, Vorname, Verein, Jahrgang, Waffenart ({{ waffenart or 'Disziplin der Mannschaft hat kein DISAG-Kürzel' }}) und Geschlecht aller {{ own|length + opp|length }} Schützen, in der Reihenfolge des Standplans. Im OpticScore Server über den FLEX-Import laden.</p>
+    {% if missing %}<p class="small" style="margin:0"><span class="pill av-vielleicht">Hinweis</span> Ohne Pass-Nr. oder Spieler-ID: {{ missing|join(', ') }}. Sie bekommen eine Ersatznummer. Jahrgang und Geschlecht fehlen bei {{ no_year }} Schützen.</p>{% elif no_year %}<p class="small muted" style="margin:0">Jahrgang oder Geschlecht fehlen bei {{ no_year }} Schützen (im Benutzerprofil bzw. per Import ergänzen).</p>{% endif %}
+    <div class="inline wrap">
+      <a class="btn small-btn primary" href="{{ url_for('disag_flex_export', mid=m.id) }}">FLEX-Datei herunterladen (.csv)</a>
+      <a class="btn small-btn" href="{{ url_for('disag_export', mid=m.id) }}">Startliste mit Ständen (.csv)</a>
+    </div>
   </div>
 </section>
 {% endif %}

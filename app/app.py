@@ -33,8 +33,29 @@ ACCENTS = {
 THEMES = {"auto": "Automatisch", "light": "Hell", "dark": "Dunkel"}
 ROLES = {"admin": "Admin", "leader": "Mannschaftsführer", "trainer": "Trainer", "shooter": "Schütze"}
 AVAIL = {"ja": "Zusage", "vielleicht": "Vielleicht", "nein": "Absage"}
-DISCIPLINES = ["Luftgewehr", "Luftgewehr Auflage", "Luftpistole", "Luftpistole Auflage",
-               "KK-Gewehr", "KK-Pistole", "Großkaliber", "Bogen"]
+DISCIPLINES = ["Luftgewehr", "Luftgewehr Auflage", "Luftpistole", "Luftpistole Auflage", "Luftpistole Standard",
+               "KK-Gewehr", "KK-Gewehr Auflage", "KK-Pistole", "Zimmerstutzen", "Zimmerstutzen Auflage",
+               "Zimmerstutzen Standard", "Kyffhäuser", "Großkaliber", "Bogen"]
+# Kürzel der Waffenart im DISAG-FLEX-Import (Vorlage "SchuetzenMitVereinWaffenart")
+WAFFENART = {"Luftgewehr": "LG", "Luftgewehr Auflage": "LGA", "Luftpistole": "LP", "Luftpistole Auflage": "LPA",
+             "Luftpistole Standard": "LPS", "KK-Gewehr": "KK", "KK-Gewehr Auflage": "KKA", "Zimmerstutzen": "ZS",
+             "Zimmerstutzen Auflage": "ZSA", "Zimmerstutzen Standard": "ZSTRD", "Kyffhäuser": "KYFFH"}
+GENDERS = {"": "–", "m": "männlich", "w": "weiblich", "d": "divers"}
+
+
+def norm_gender(v):
+    v = (v or "").strip().lower()
+    if v in ("m", "männlich", "maennlich", "mann", "0", "male", "herr"):
+        return "m"
+    if v in ("w", "weiblich", "frau", "f", "1", "female", "dame"):
+        return "w"
+    return "d" if v in ("d", "divers") else ""
+
+
+def norm_year(v):
+    v = (v or "").strip()
+    m_ = __import__("re").search(r"(19|20)\d\d", v)
+    return m_.group(0) if m_ else ""
 
 def load_secret_key():
     """SECRET_KEY aus der Umgebung, sonst einmalig erzeugen und im Datenordner ablegen."""
@@ -292,6 +313,10 @@ MIGRATIONS = [
     ("users", "pw_ver", "INTEGER NOT NULL DEFAULT 0"),     # erhöht bei Passwortwechsel -> alte Sitzungen ungültig
     ("users", "lock_reason", "TEXT NOT NULL DEFAULT ''"),  # Grund der Sperre (nur für Admin sichtbar)
     ("users", "locked_at", "TEXT"),
+    ("users", "birth_year", "TEXT NOT NULL DEFAULT ''"),  # Jahrgang (für DISAG)
+    ("users", "gender", "TEXT NOT NULL DEFAULT ''"),      # m | w | d (für DISAG)
+    ("opp_shooters", "birth_year", "TEXT NOT NULL DEFAULT ''"),
+    ("opp_shooters", "gender", "TEXT NOT NULL DEFAULT ''"),
     ("matches", "opp_team_id", "INTEGER"),                # Gegnermannschaft aus der Gegnerliste
     ("matches", "area", "TEXT NOT NULL DEFAULT ''"),       # LG | KK | '' = aus Disziplin der Mannschaft
     ("matches", "lanes", "INTEGER"),                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
@@ -570,15 +595,17 @@ def starters(m, t):
     own_side, opp_side = ("Heim", "Gast") if m["home"] else ("Gast", "Heim")
     own = [dict(key=f"u{r['user_id']}", side=own_side, own=True, name=r["name"], lane=r["lane"], relay=r["relay"],
                 pos=r["pos"], rings=r["rings"], pass_nr=r["pass_nr"], player_id=r["player_id"],
-                club=r["club"] or club, team=t["name"])
-           for r in q("""SELECT l.*, u.name, u.pass_nr, u.player_id, u.club FROM lineup l JOIN users u ON u.id=l.user_id
+                club=r["club"] or club, team=t["name"], birth_year=r["birth_year"], gender=r["gender"])
+           for r in q("""SELECT l.*, u.name, u.pass_nr, u.player_id, u.club, u.birth_year, u.gender FROM lineup l JOIN users u ON u.id=l.user_id
                          WHERE l.match_id=? ORDER BY l.pos, u.name""", (m["id"],))]
     ot = q("""SELECT ot.name team, c.name club FROM opp_teams ot JOIN opp_clubs c ON c.id=ot.club_id WHERE ot.id=?""",
            (m["opp_team_id"],), one=True) if m["opp_team_id"] else None
     opp = [dict(key=f"o{r['id']}", side=opp_side, own=False, name=r["name"], lane=r["lane"], relay=r["relay"],
                 pos=r["pos"], rings=r["rings"], pass_nr=r["pass_nr"], player_id=r["player_id"],
-                club=ot["club"] if ot else m["opponent"], team=opp_label(ot["club"], ot["team"]) if ot else m["opponent"])
-           for r in q("SELECT * FROM match_opp WHERE match_id=? ORDER BY pos, id", (m["id"],))]
+                club=ot["club"] if ot else m["opponent"], team=opp_label(ot["club"], ot["team"]) if ot else m["opponent"],
+                birth_year=r["s_year"] or "", gender=r["s_gender"] or "")
+           for r in q("""SELECT mo.*, os.birth_year s_year, os.gender s_gender FROM match_opp mo
+                         LEFT JOIN opp_shooters os ON os.id=mo.shooter_id WHERE mo.match_id=? ORDER BY mo.pos, mo.id""", (m["id"],))]
     return own, opp
 
 
@@ -1357,6 +1384,8 @@ def user_edit(uid=None):
         active = user["active"] if user else 1   # Sperren/Entsperren über eigene Knöpfe
         pw = request.form.get("password", "")
         extra = {k: request.form.get(k, "").strip() for k in ("player_id", "pass_nr", "club")}
+        extra["birth_year"] = norm_year(request.form.get("birth_year"))
+        extra["gender"] = norm_gender(request.form.get("gender"))
         if role not in ROLES:
             role = "shooter"
         if user and user["id"] == current_user()["id"]:
@@ -1372,8 +1401,10 @@ def user_edit(uid=None):
             flash("Neues Passwort: mindestens 8 Zeichen.", "error")
         else:
             if user:
-                ex("UPDATE users SET name=?, username=?, role=?, active=?, player_id=?, pass_nr=?, club=? WHERE id=?",
-                   (name, username, role, active, extra["player_id"], extra["pass_nr"], extra["club"], uid))
+                ex("""UPDATE users SET name=?, username=?, role=?, active=?, player_id=?, pass_nr=?, club=?,
+                      birth_year=?, gender=? WHERE id=?""",
+                   (name, username, role, active, extra["player_id"], extra["pass_nr"], extra["club"],
+                    extra["birth_year"], extra["gender"], uid))
                 if pw:
                     ex("UPDATE users SET password_hash=?, must_change_pw=1, pw_ver=pw_ver+1 WHERE id=?",
                        (generate_password_hash(pw), uid))
@@ -1382,9 +1413,9 @@ def user_edit(uid=None):
                 save_user_groups(uid)
                 flash("Benutzer gespeichert.", "ok")
             else:
-                new_uid = ex("""INSERT INTO users (name, username, role, active, password_hash, must_change_pw, player_id, pass_nr, club)
-                      VALUES (?,?,?,?,?,1,?,?,?)""", (name, username, role, active, generate_password_hash(pw),
-                                                    extra["player_id"], extra["pass_nr"], extra["club"]))
+                new_uid = ex("""INSERT INTO users (name, username, role, active, password_hash, must_change_pw, player_id, pass_nr, club,
+                      birth_year, gender) VALUES (?,?,?,?,?,1,?,?,?,?,?)""", (name, username, role, active, generate_password_hash(pw),
+                                                    extra["player_id"], extra["pass_nr"], extra["club"], extra["birth_year"], extra["gender"]))
                 save_user_groups(new_uid)
                 flash(f"Benutzer {name} angelegt. Beim ersten Login muss das Passwort geändert werden.", "ok")
             return redirect(url_for("users"))
@@ -1401,7 +1432,7 @@ def user_edit(uid=None):
                      WHERE tm.user_id=? UNION
                      SELECT t.id, t.name, 0, 1 FROM teams t WHERE t.leader_id=? AND t.id NOT IN
                      (SELECT team_id FROM team_members WHERE user_id=?) ORDER BY 2""", (uid, uid, uid, uid)) if uid else []
-    return render_template("user_edit.html", user=user, all_groups=q("SELECT * FROM groups ORDER BY name"), member_of=member_of,
+    return render_template("user_edit.html", user=user, all_groups=q("SELECT * FROM groups ORDER BY name"), member_of=member_of, GENDERS=GENDERS,
                            my_groups=user_group_ids(uid) if uid else set(), impact=impact,
                            temp_locked=bool(user and user["username"] and user["username"].lower() in temp_locked_names()))
 
@@ -2161,7 +2192,10 @@ def standplan(mid):
             for r in range(1, relays + 1)]
     unplaced = [s_ for s_ in everyone if not (s_["relay"] and s_["lane"])]
     need = -(-len(everyone) // lanes) if everyone else 1
+    missing = [s_["name"] for s_ in everyone if not (s_["pass_nr"] or s_["player_id"])]
+    no_year = sum(1 for s_ in everyone if not (s_["birth_year"] and s_["gender"]))
     return render_template("standplan.html", m=m, t=t, manage=manage, area=area, lanes=lanes, own=own, opp=opp,
+                           waffenart=WAFFENART.get(t["discipline"], ""), missing=missing, no_year=no_year,
                            grid=grid, unplaced=unplaced, relay_choices=range(1, max(relays, need) + 2),
                            need=need, default_lanes=range_setting("lanes_kk" if area == "KK" else "lanes_lg"))
 
@@ -2211,6 +2245,61 @@ def disag_export(mid):
     name = _re.sub(r"[^A-Za-z0-9_.-]", "", name) + ".csv"
     return app.response_class(data, mimetype="text/csv; charset=windows-1252",
                               headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+FLEX_COLUMNS = ["Ausweisnummer", "Name", "Vorname", "Verein", "Jahrgang", "Waffenart", "Geschlecht"]
+
+
+def flex_csv(rows, waffenart):
+    """DISAG-FLEX-Import "SchuetzenMitVereinWaffenart": Semikolon, Windows-Zeichensatz, CRLF."""
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
+    w.writerow(FLEX_COLUMNS)
+    for r in rows:
+        first, last = split_name(r["name"])
+        w.writerow([r["ausweis"], last, first, r["club"] or "", r["birth_year"] or "", waffenart, r["gender"] or ""])
+    return buf.getvalue().encode("cp1252", errors="replace")
+
+
+def csv_response(data, name):
+    import re as _re
+    name = _re.sub(r"[^A-Za-z0-9_.-]", "", name.replace(" ", "_")) + ".csv"
+    return app.response_class(data, mimetype="text/csv; charset=windows-1252",
+                              headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.route("/wettkampf/<int:mid>/disag-flex.csv")
+@login_required
+def disag_flex_export(mid):
+    """Alle Schützen eines Wettkampfs (eigene + Gegner) im FLEX-Format, sortiert nach Durchgang und Stand.
+    Ohne Pass-Nr./Spieler-ID wird eine feste Ersatznummer vergeben (90000 + Benutzer-Nr. bzw. 95000 + Gegner-Nr.)."""
+    m = get_match(mid)
+    t = get_team(m["team_id"])
+    if not can_manage(t):
+        abort(403)
+    own, opp = starters(m, t)
+    rows = []
+    for s_ in sorted(own + opp, key=lambda x: (x["relay"] or 99, x["lane"] or 99, x["pos"])):
+        n = int(s_["key"][1:])
+        rows.append(dict(s_, ausweis=s_["pass_nr"] or s_["player_id"] or str((90000 if s_["own"] else 95000) + n)))
+    return csv_response(flex_csv(rows, WAFFENART.get(t["discipline"], "")), f"{m['date']}_{t['name']}_FLEX_SchuetzenMitVereinWaffenart")
+
+
+@app.route("/mannschaft/<int:tid>/disag-flex.csv")
+@login_required
+def team_flex_export(tid):
+    """Alle Schützen einer Mannschaft im FLEX-Format, z. B. um sie einmalig in DISAG anzulegen."""
+    t = get_team(tid)
+    if not can_manage(t):
+        abort(403)
+    club = setting("club_name") or VEREIN_NAME
+    rows = [dict(name=r["name"], club=r["club"] or club, birth_year=r["birth_year"], gender=r["gender"],
+                 ausweis=r["pass_nr"] or r["player_id"] or str(90000 + r["id"]))
+            for r in q("""SELECT u.* FROM team_members tm JOIN users u ON u.id=tm.user_id
+                          WHERE tm.team_id=? AND u.active=1 ORDER BY u.name""", (tid,))]
+    return csv_response(flex_csv(rows, WAFFENART.get(t["discipline"], "")), f"{t['name']}_FLEX_SchuetzenMitVereinWaffenart")
 
 
 def fmt_date_plain(iso):
@@ -2505,15 +2594,18 @@ def opp_team_by_label(label):
 # ---------------------------------------------------------------- CSV-Import (Schützen, Gegner)
 IMPORT_FIELDS = {
     "schuetzen": {"vorname": "Vorname", "nachname": "Nachname", "name": "Name (komplett)",
-                  "player_id": "Spieler-ID", "pass_nr": "Pass-Nr.", "club": "Verein", "": "– ignorieren –"},
+                  "player_id": "Spieler-ID", "pass_nr": "Pass-Nr. / Ausweisnummer", "club": "Verein",
+                  "birth_year": "Jahrgang", "gender": "Geschlecht", "": "– ignorieren –"},
     "gegner": {"club": "Verein", "team": "Mannschaft", "location": "Ort / Schießstand",
                "vorname": "Schütze Vorname", "nachname": "Schütze Nachname", "name": "Schütze (Name komplett)",
-               "pass_nr": "Pass-Nr.", "player_id": "Spieler-ID", "": "– ignorieren –"},
+               "pass_nr": "Pass-Nr. / Ausweisnummer", "player_id": "Spieler-ID", "birth_year": "Jahrgang",
+               "gender": "Geschlecht", "": "– ignorieren –"},
 }
 HEADER_HINTS = {
     "vorname": ("vorname", "first"), "nachname": ("nachname", "familienname", "last", "zuname"),
     "name": ("name", "schütze", "schuetze"), "player_id": ("id", "startnummer", "startnr", "personennummer", "mitgliedsnummer", "spieler"),
-    "pass_nr": ("pass",), "club": ("verein", "club"), "team": ("mannschaft", "team"), "location": ("ort", "stand", "halle"),
+    "pass_nr": ("pass", "ausweis"), "club": ("verein", "club"), "birth_year": ("jahrgang", "geburtsjahr", "geburt"),
+    "gender": ("geschlecht", "sex", "gender"), "team": ("mannschaft", "team"), "location": ("ort", "stand", "halle"),
 }
 
 
@@ -2536,9 +2628,13 @@ def read_csv(raw):
 def guess_mapping(header, kind):
     fields = IMPORT_FIELDS[kind]
     out = []
+    has_first = any("vorname" in h.lower() for h in header)
     for h in header:
         hl = h.lower().strip()
         pick = ""
+        if hl == "name" and has_first and "nachname" in fields and "nachname" not in out:
+            out.append("nachname")   # DISAG: "Name" + "Vorname" -> Name ist der Nachname
+            continue
         for f in fields:
             if f and any(word in hl for word in HEADER_HINTS.get(f, ())):
                 if f == "name" and ("vor" in hl or "nach" in hl):
@@ -2560,6 +2656,19 @@ def make_username(name):
     while q("SELECT 1 FROM users WHERE username=?", (cand,), one=True):
         cand, n = f"{base}{n}", n + 1
     return cand
+
+
+def upsert_opp_shooter(conn, cid, team_id, sname, rec):
+    """Gegnerschützen anlegen oder ergänzen (gleicher Name im selben Verein)."""
+    vals = (rec.get("pass_nr", ""), rec.get("player_id", ""), norm_year(rec.get("birth_year")), norm_gender(rec.get("gender")))
+    old = conn.execute("SELECT id FROM opp_shooters WHERE club_id=? AND lower(name)=lower(?)", (cid, sname)).fetchone()
+    if old:
+        conn.execute("""UPDATE opp_shooters SET team_id=COALESCE(?, team_id), pass_nr=COALESCE(NULLIF(?, ''), pass_nr),
+                        player_id=COALESCE(NULLIF(?, ''), player_id), birth_year=COALESCE(NULLIF(?, ''), birth_year),
+                        gender=COALESCE(NULLIF(?, ''), gender) WHERE id=?""", (team_id,) + vals + (old[0],))
+    else:
+        conn.execute("""INSERT INTO opp_shooters (club_id, team_id, name, pass_nr, player_id, birth_year, gender)
+                        VALUES (?,?,?,?,?,?,?)""", (cid, team_id, sname) + vals)
 
 
 @app.route("/import/<kind>", methods=["GET", "POST"])
@@ -2613,14 +2722,7 @@ def csv_import(kind):
                     sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
                     if sname and rec.get("club"):
                         cid = find_or_create_opp_club(conn, rec["club"])
-                        old = conn.execute("SELECT id FROM opp_shooters WHERE club_id=? AND lower(name)=lower(?)", (cid, sname)).fetchone()
-                        if old:
-                            conn.execute("""UPDATE opp_shooters SET pass_nr=COALESCE(NULLIF(?, ''), pass_nr),
-                                            player_id=COALESCE(NULLIF(?, ''), player_id) WHERE id=?""",
-                                         (rec.get("pass_nr", ""), rec.get("player_id", ""), old[0]))
-                        else:
-                            conn.execute("INSERT INTO opp_shooters (club_id, name, pass_nr, player_id) VALUES (?,?,?,?)",
-                                         (cid, sname, rec.get("pass_nr", ""), rec.get("player_id", "")))
+                        upsert_opp_shooter(conn, cid, None, sname, rec)
                         as_opp += 1
                     else:
                         skipped += 1
@@ -2634,14 +2736,7 @@ def csv_import(kind):
                 team_id = find_or_create_opp_team(conn, cid, rec["team"]) if rec.get("team") else None
                 sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
                 if sname:
-                    old = conn.execute("SELECT id FROM opp_shooters WHERE club_id=? AND lower(name)=lower(?)", (cid, sname)).fetchone()
-                    if old:
-                        conn.execute("""UPDATE opp_shooters SET team_id=COALESCE(?, team_id), pass_nr=COALESCE(NULLIF(?, ''), pass_nr),
-                                        player_id=COALESCE(NULLIF(?, ''), player_id) WHERE id=?""",
-                                     (team_id, rec.get("pass_nr", ""), rec.get("player_id", ""), old[0]))
-                    else:
-                        conn.execute("INSERT INTO opp_shooters (club_id, team_id, name, pass_nr, player_id) VALUES (?,?,?,?,?)",
-                                     (cid, team_id, sname, rec.get("pass_nr", ""), rec.get("player_id", "")))
+                    upsert_opp_shooter(conn, cid, team_id, sname, rec)
                 if conn.total_changes > before:
                     created += 1
                 else:
@@ -2658,16 +2753,18 @@ def csv_import(kind):
                 old = q("SELECT * FROM users WHERE lower(name)=lower(?)", (name,), one=True)
             if old:
                 conn.execute("""UPDATE users SET player_id=COALESCE(NULLIF(?, ''), player_id),
-                                pass_nr=COALESCE(NULLIF(?, ''), pass_nr), club=COALESCE(NULLIF(?, ''), club) WHERE id=?""",
-                             (rec.get("player_id", ""), rec.get("pass_nr", ""), rec.get("club", ""), old["id"]))
+                                pass_nr=COALESCE(NULLIF(?, ''), pass_nr), club=COALESCE(NULLIF(?, ''), club),
+                                birth_year=COALESCE(NULLIF(?, ''), birth_year), gender=COALESCE(NULLIF(?, ''), gender) WHERE id=?""",
+                             (rec.get("player_id", ""), rec.get("pass_nr", ""), rec.get("club", ""),
+                              norm_year(rec.get("birth_year")), norm_gender(rec.get("gender")), old["id"]))
                 updated += 1
             else:
                 username = make_username(name)
                 pw = secrets.token_urlsafe(6)
-                conn.execute("""INSERT INTO users (name, username, password_hash, role, must_change_pw, player_id, pass_nr, club)
-                                VALUES (?,?,?,'shooter',1,?,?,?)""",
+                conn.execute("""INSERT INTO users (name, username, password_hash, role, must_change_pw, player_id, pass_nr, club,
+                                birth_year, gender) VALUES (?,?,?,'shooter',1,?,?,?,?,?)""",
                              (name, username, generate_password_hash(pw), rec.get("player_id", ""),
-                              rec.get("pass_nr", ""), rec.get("club", "")))
+                              rec.get("pass_nr", ""), rec.get("club", ""), norm_year(rec.get("birth_year")), norm_gender(rec.get("gender"))))
                 conn.commit()
                 accounts.append({"name": name, "username": username, "password": pw})
                 created += 1

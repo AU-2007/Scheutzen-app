@@ -19,6 +19,11 @@
     <label>Pass-Nr.<input name="pass_nr" value="{{ user.pass_nr if user }}"></label>
   </div>
   <label>Verein <span class="muted small">(nur bei Gastschützen nötig)</span><input name="club" value="{{ user.club if user }}"></label>
+  <div class="row2">
+    <label>Jahrgang <span class="muted small">(für DISAG)</span><input name="birth_year" value="{{ user.birth_year if user }}" inputmode="numeric" maxlength="4" placeholder="z. B. 1987"></label>
+    <label>Geschlecht <span class="muted small">(für DISAG)</span>
+      <select name="gender">{% for k, label in GENDERS.items() %}<option value="{{ k }}" {{ 'selected' if user and user.gender == k }}>{{ label }}</option>{% endfor %}</select></label>
+  </div>
   {% if all_groups %}
   <div>
     <div class="field-label">Trainingsgruppen</div>

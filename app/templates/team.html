@@ -17,6 +17,7 @@
   <div class="inline wrap">
     {% if t.rwk_url %}<a class="btn small-btn" href="{{ t.rwk_url }}" target="_blank" rel="noopener">Tabelle &amp; Ergebnisse ↗</a>{% endif %}
     {% if manage %}<a class="btn small-btn" href="{{ url_for('rwk_import', tid=t.id) }}">Wettkampfplan importieren</a>{% endif %}
+    {% if manage %}<a class="btn small-btn" href="{{ url_for('team_flex_export', tid=t.id) }}" title="Alle Schützen der Mannschaft als DISAG-FLEX-Datei">Schützen für DISAG (.csv)</a>{% endif %}
     {% if manage and not t.rwk_url %}<a class="btn small-btn" href="{{ url_for('team_edit', tid=t.id) }}">Link hinterlegen</a>{% endif %}
   </div>
 </div>

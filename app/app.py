@@ -2326,9 +2326,15 @@ def parse_ics(text):
     def unescape(v):
         return v.replace("\\n", " ").replace("\\N", " ").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\").strip()
 
-    events, ev = [], None
+    events, ev, in_sub = [], None, False
     for line in lines:
-        if line == "BEGIN:VEVENT":
+        if line.startswith("BEGIN:") and line != "BEGIN:VEVENT" and ev is not None:
+            in_sub = True                                       # z. B. VALARM: eigene DESCRIPTION ignorieren
+        elif line.startswith("END:") and line != "END:VEVENT" and ev is not None:
+            in_sub = False
+        elif in_sub:
+            continue
+        elif line == "BEGIN:VEVENT":
             ev = {}
         elif line == "END:VEVENT":
             if ev is not None and ev.get("date"):
@@ -2352,17 +2358,50 @@ def parse_ics(text):
                 except ValueError:
                     pass
             elif name in ("SUMMARY", "LOCATION", "UID", "DESCRIPTION"):
-                ev[name.lower()] = unescape(val)
+                ev[name.lower()] = " ".join(unescape(val).split())
     return events
 
 
-def guess_pairing(summary, own_name):
-    """Aus 'Heim - Gast' den Gegner und Heim/Auswärts ableiten."""
+RWK_PREFIX = r"^\s*(?:RWK|Runde|Wettkampf|WK)\s*\d+\s*[-–:]\s*"
+
+
+def split_pairing(summary):
+    """'RWK 01 - SV A 1 : SV B 2' -> ('RWK 01', 'SV A 1', 'SV B 2'). Heim steht links."""
     import re
-    parts = re.split(r"\s+(?:-|–|:|vs\.?|gegen)\s+", summary, maxsplit=1)
-    if len(parts) != 2:
+    rnd = ""
+    m_ = re.match(RWK_PREFIX, summary or "", re.I)
+    if m_:
+        rnd = m_.group(0).strip(" -–:")
+        summary = summary[m_.end():]
+    for sep in (r"\s+:\s+", r"\s+(?:vs\.?|gegen)\s+", r"\s+[-–]\s+", r"\s*:\s*"):
+        parts = re.split(sep, summary.strip(), maxsplit=1)
+        if len(parts) == 2 and all(p.strip() for p in parts):
+            return rnd, parts[0].strip(), parts[1].strip()
+    return rnd, summary.strip(), ""
+
+
+def rwk_class_info(description):
+    """Aus 'RWK-Luftgewehr 2026-2027 Bereichsklasse A Nord RWK 01 - …' Disziplin, Saison und Klasse lesen."""
+    import re
+    m_ = re.search(r"RWK-?\s*([A-Za-zÄÖÜäöüß. -]+?)\s*(\d{4}\s*[-/]\s*\d{2,4})\s*(.*?)\s*(?:RWK\s*\d+|$)", description or "")
+    if not m_:
+        return {}
+    return {"discipline": m_.group(1).strip(" -"), "season": m_.group(2).replace(" ", "").replace("-", "/"),
+            "league": m_.group(3).strip()}
+
+
+def split_team_label(label):
+    """'SV Diana Ennerich 1' -> ('SV Diana Ennerich', '1')."""
+    import re
+    m_ = re.match(r"^(.*?)\s+(\d+|[IVX]+)$", label.strip())
+    return (m_.group(1), m_.group(2)) if m_ else (label.strip(), "")
+
+
+def guess_pairing(summary, own_name):
+    """Aus 'Heim : Gast' (auch mit 'RWK 01 - ' davor) den Gegner und Heim/Auswärts ableiten."""
+    _rnd, left, right = split_pairing(summary)
+    if not right:
         return summary, 1
-    left, right = (p.strip() for p in parts)
     own = (own_name or "").lower().strip()
     if own and own in right.lower() and own not in left.lower():
         return left, 0
@@ -2371,16 +2410,66 @@ def guess_pairing(summary, own_name):
     return right, 1
 
 
+def rwk_teams(events):
+    """Alle Mannschaften eines Wettkampfplans mit ihrem Heim-Schießstand."""
+    teams = {}
+    for ev in events:
+        _r, home, guest = split_pairing(ev.get("summary", ""))
+        if not guest:
+            continue
+        teams.setdefault(home, ev.get("location", ""))
+        if not teams[home] and ev.get("location"):
+            teams[home] = ev["location"]
+        teams.setdefault(guest, "")
+    return teams
+
+
+def resolve_own(name, teams):
+    """Eigene Mannschaft im Plan finden, auch bei kleinen Tippfehlern ('Eisnebach' -> 'Eisenbach')."""
+    import difflib
+    name = (name or "").strip()
+    if not name:
+        return None
+    for t_ in teams:
+        if t_.lower() == name.lower():
+            return t_
+    hits = difflib.get_close_matches(name.lower(), [t_.lower() for t_ in teams], n=1, cutoff=0.75)
+    return next((t_ for t_ in teams if t_.lower() == hits[0]), None) if hits else None
+
+
 @app.route("/mannschaft/<int:tid>/rwk-import", methods=["GET", "POST"])
 @login_required
 def rwk_import(tid):
     t = get_team(tid)
     if not can_manage(t):
         abort(403)
-    # Schritt 2: Vorschau bestätigt -> Wettkämpfe anlegen oder aktualisieren
-    if request.method == "POST" and request.form.get("step") == "save":
-        created = updated = 0
+    step = request.form.get("step") if request.method == "POST" else None
+    text = request.form.get("ics_text", "")
+    if request.method == "POST" and step != "save" and not text:
+        f = request.files.get("ics")
+        raw = f.read(2_000_000) if f else b""
+        text = raw.decode("utf-8", errors="replace")
+    events = parse_ics(text) if "BEGIN:VCALENDAR" in text else []
+    teams = rwk_teams(events)
+    info = next((rwk_class_info(e.get("description")) for e in events if rwk_class_info(e.get("description"))), {})
+
+    # Schritt 2: Vorschau bestätigt -> Gegner und Wettkämpfe anlegen oder aktualisieren
+    if step == "save":
+        own = request.form.get("rwk_name", "").strip()
         conn = db()
+        new_opp = 0
+        if request.form.get("add_opps") == "1":
+            disc = info.get("discipline", "")
+            for label, loc in teams.items():
+                if label.lower() == own.lower():
+                    continue
+                club_name, team_name = split_team_label(label)
+                before = conn.total_changes
+                cid = find_or_create_opp_club(conn, club_name, loc)
+                find_or_create_opp_team(conn, cid, team_name, disc if disc in DISCIPLINES else "")
+                new_opp += conn.total_changes > before
+            conn.commit()
+        created = updated = 0
         for i in request.form.getlist("row"):
             if not request.form.get(f"use_{i}"):
                 continue
@@ -2390,33 +2479,44 @@ def rwk_import(tid):
                 continue
             vals = (d, request.form.get(f"time_{i}", "").strip(), opp,
                     1 if request.form.get(f"home_{i}") == "1" else 0, request.form.get(f"loc_{i}", "").strip())
+            ot = opp_team_by_label(opp)
             uid = request.form.get(f"uid_{i}", "").strip() or None
             old = q("SELECT id FROM matches WHERE team_id=? AND ext_uid=?", (tid, uid), one=True) if uid else None
             if old:
-                conn.execute("UPDATE matches SET date=?, time=?, opponent=?, home=?, location=? WHERE id=?", vals + (old["id"],))
+                conn.execute("""UPDATE matches SET date=?, time=?, opponent=?, home=?, location=?,
+                                opp_team_id=COALESCE(opp_team_id, ?) WHERE id=?""", vals + (ot["id"] if ot else None, old["id"]))
                 updated += 1
             else:
-                ot = opp_team_by_label(vals[2])
                 conn.execute("""INSERT INTO matches (team_id, date, time, opponent, home, location, ext_uid, opp_team_id)
                                 VALUES (?,?,?,?,?,?,?,?)""", (tid,) + vals + (uid, ot["id"] if ot else None))
                 created += 1
-        if request.form.get("rwk_name") is not None:
-            conn.execute("UPDATE teams SET rwk_name=? WHERE id=?", (request.form.get("rwk_name", "").strip(), tid))
+        conn.execute("UPDATE teams SET rwk_name=? WHERE id=?", (own, tid))
+        if info:   # Klasse und Saison übernehmen, wenn noch leer
+            conn.execute("UPDATE teams SET league=CASE WHEN league='' THEN ? ELSE league END, "
+                         "season=CASE WHEN season='' THEN ? ELSE season END WHERE id=?",
+                         (info.get("league", ""), info.get("season", ""), tid))
         conn.commit()
-        flash(f"Import fertig: {created} neu, {updated} aktualisiert.", "ok")
+        flash(f"Import fertig: {created} neu, {updated} aktualisiert"
+              f"{f', {new_opp} Gegner in die Gegnerliste übernommen' if new_opp else ''}.", "ok")
         return redirect(url_for("team", tid=tid))
 
-    # Schritt 1: Datei hochladen -> Vorschau
-    rows, own = None, (request.form.get("rwk_name") or t["rwk_name"] or t["name"]).strip()
+    # Schritt 1: Datei hochladen (oder andere Mannschaft gewählt) -> Vorschau
+    typed = (request.form.get("rwk_name") or t["rwk_name"] or t["name"]).strip()
+    rows, own, hidden = None, typed, 0
     if request.method == "POST":
-        f = request.files.get("ics")
-        raw = f.read(2_000_000) if f else b""
-        text = raw.decode("utf-8", errors="replace")
         if "BEGIN:VCALENDAR" not in text:
             flash("Das ist keine Kalenderdatei. Bitte die .ics-Datei aus dem RWK-Onlinemelder wählen.", "error")
+        elif not events:
+            flash("In der Datei wurden keine Termine gefunden.", "error")
         else:
+            own = resolve_own(typed, teams) or typed
+            found = own in teams
             rows = []
-            for ev in parse_ics(text):
+            for ev in events:
+                rnd, home_t, guest_t = split_pairing(ev.get("summary", ""))
+                if found and own not in (home_t, guest_t):
+                    hidden += 1
+                    continue
                 opp, home = guess_pairing(ev.get("summary", ""), own)
                 existing = q("SELECT id, date, time FROM matches WHERE team_id=? AND ext_uid=?", (tid, ev.get("uid")), one=True) \
                     if ev.get("uid") else None
@@ -2426,13 +2526,13 @@ def rwk_import(tid):
                               ORDER BY id DESC LIMIT 1""", (existing["id"],), one=True)
                     if mv:
                         moved = existing["date"]
-                rows.append(dict(ev, opp=opp, home=home, exists=existing is not None, moved=moved,
+                rows.append(dict(ev, opp=opp, home=home, rnd=rnd, exists=existing is not None, moved=moved,
                                  past=ev["date"] < date.today().isoformat()))
             rows.sort(key=lambda r: (r["date"], r["time"]))
-            if not rows:
-                flash("In der Datei wurden keine Termine gefunden.", "error")
-                rows = None
-    return render_template("rwk_import.html", t=t, rows=rows, own=own)
+    known = {o["label"].lower() for c in opponent_choices() for o in c["teams"]}
+    new_teams = [x for x in teams if x != own and x.lower() not in known]
+    return render_template("rwk_import.html", t=t, rows=rows, own=own, typed=typed, teams=sorted(teams), found=own in teams,
+                           hidden=hidden, ics_text=text if rows is not None else "", info=info, new_teams=new_teams)
 
 
 # ---------------------------------------------------------------- Verein (nur Admin)

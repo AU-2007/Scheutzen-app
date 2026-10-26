@@ -74,7 +74,7 @@ Protokolle werden nach 90 Tagen gelöscht. Läuft die App hinter einem Reverse P
 
 Der RWK-Onlinemelder hat keine Schnittstelle. Die App bindet ihn so an:
 
-- **Wettkampfplan importieren:** In der Mannschaft auf *Wettkampfplan importieren* tippen. Im RWK-Onlinemelder den Wettkampfplan öffnen, die eigene Mannschaft wählen und über das Kalender-Symbol die .ics-Datei speichern. Diese Datei hochladen und die Vorschau prüfen. Ein erneuter Import aktualisiert geänderte Termine, statt sie doppelt anzulegen.
+- **Wettkampfplan importieren:** In der Mannschaft auf *Wettkampfplan importieren* tippen. Im RWK-Onlinemelder den Wettkampfplan öffnen, die eigene Mannschaft wählen und über das Kalender-Symbol die .ics-Datei speichern. Diese Datei hochladen und die Vorschau prüfen. Ein erneuter Import aktualisiert geänderte Termine, statt sie doppelt anzulegen. Der Kalender enthält meist die ganze Klasse: Die App erkennt eure Mannschaft (auch bei kleinen Tippfehlern im Namen), zeigt nur eure Termine, übernimmt Klasse und Saison und legt auf Wunsch alle Gegner der Klasse mit Schießstand-Adresse in der Gegnerliste an.
 - **Link zur Klasse:** Unter *Mannschaft bearbeiten* den Link zur Tabelle im RWK-Onlinemelder hinterlegen.
 - **Termin verlegen:** Beim Wettkampf beantragt der Mannschaftsführer einen neuen Termin. Die App erstellt den Antragstext für Gegner und Rundenwettkampfleiter. Nach deren Zustimmung auf *Bestätigt* tippen: Der Termin wird geändert und alle sagen neu zu. Ein späterer RWK-Import überschreibt verlegte Termine nicht ungefragt.
 - **Ergebnis melden:** Sobald Ringe eingetragen sind, zeigt der Wettkampf das Ergebnis fertig zum Abtippen beziehungsweise Kopieren, mit einem Knopf zum RWK-Onlinemelder.

@@ -21,11 +21,31 @@
   <button class="btn primary">Datei prüfen</button>
 </form>
 {% else %}
-<p class="muted">{{ rows|length }} Termine gefunden. Prüfe Gegner und Heim/Auswärts, dann speichern. Termine, die es schon gibt, werden aktualisiert statt doppelt angelegt.</p>
+{% if info %}<p class="muted" style="margin-top:0">{{ info.league }} · {{ info.discipline }} {{ info.season }}</p>{% endif %}
+<form method="post" class="card stack own-pick">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="preview">
+  <textarea name="ics_text" hidden>{{ ics_text }}</textarea>
+  {% if found %}
+  <p style="margin:0">Eure Mannschaft: <b>{{ own }}</b>{% if typed.lower() != own.lower() %} <span class="muted small">(erkannt aus „{{ typed }}“)</span>{% endif %}{% if hidden %} · <span class="muted small">{{ hidden }} Termine anderer Mannschaften ausgeblendet</span>{% endif %}</p>
+  {% else %}
+  <div class="flash info" style="margin:0">„{{ typed }}“ steht nicht im Wettkampfplan. Bitte eure Mannschaft auswählen, dann zeigt die App nur eure Termine.</div>
+  {% endif %}
+  <div class="inline-form">
+    <select name="rwk_name" aria-label="Eure Mannschaft">{% for x in teams %}<option {{ 'selected' if x == own }}>{{ x }}</option>{% endfor %}</select>
+    <button class="btn">{{ 'Andere Mannschaft' if found else 'Übernehmen' }}</button>
+  </div>
+</form>
+<p class="muted">{{ rows|length }} Termine. Prüfe Gegner und Heim/Auswärts, dann speichern. Termine, die es schon gibt, werden aktualisiert statt doppelt angelegt.</p>
 <form method="post">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="step" value="save">
   <input type="hidden" name="rwk_name" value="{{ own }}">
+  <textarea name="ics_text" hidden>{{ ics_text }}</textarea>
+  {% if new_teams and found %}
+  <label class="check card" style="margin-bottom:10px"><input type="checkbox" name="add_opps" value="1" checked>
+    <span>{{ new_teams|length }} Gegner in die Gegnerliste übernehmen <span class="muted small">({{ new_teams|join(', ') }}, mit Schießstand-Adresse)</span></span></label>
+  {% endif %}
   <div class="list">
     {% for r in rows %}
     {% set i = loop.index0 %}
@@ -35,8 +55,8 @@
       <input type="hidden" name="date_{{ i }}" value="{{ r.date }}">
       <input type="hidden" name="time_{{ i }}" value="{{ r.time }}">
       <input type="hidden" name="loc_{{ i }}" value="{{ r.location or '' }}">
-      <label class="check"><input type="checkbox" name="use_{{ i }}" value="1" {{ 'checked' if not r.past and not r.moved }}>
-        <b>{{ r.date|datum }}{% if r.time %} · {{ r.time }} Uhr{% endif %}</b>
+      <label class="check"><input type="checkbox" name="use_{{ i }}" value="1" {{ 'checked' if not r.moved }}>
+        <b>{% if r.rnd %}{{ r.rnd }} · {% endif %}{{ r.date|datum }}{% if r.time %} · {{ r.time }} Uhr{% endif %}</b>
         {% if r.exists %}<span class="pill">schon vorhanden</span>{% endif %}
         {% if r.moved %}<span class="pill av-vielleicht">in der App verlegt auf {{ r.moved|datum }}</span>{% endif %}
         {% if r.past %}<span class="pill open">vergangen</span>{% endif %}

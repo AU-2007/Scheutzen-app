@@ -559,3 +559,13 @@ tfoot td { border-top: 1px solid var(--line); }
 .lane { text-align: left; align-items: flex-start; }
 .lane b { color: var(--ink); font-size: 1rem; }
 .row2 > * { min-width: 0; }
+
+/* Massenaktionen Benutzer */
+.user-filter { grid-template-columns: 2fr repeat(4, 1fr) auto auto; }
+@media (max-width: 900px) { .user-filter { grid-template-columns: 1fr 1fr 1fr; } .user-filter input[type=search] { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .user-filter { grid-template-columns: 1fr 1fr; } }
+.filter-check { align-self: center; white-space: nowrap; }
+.bulk-bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 10px; border-color: var(--green-2); }
+.bulk-bar select, .bulk-bar input { flex: 1 1 180px; min-width: 0; width: auto; }
+th.sel, td.sel { width: 36px; padding-right: 0; }
+.bulk-bar .btn.danger { color: #fff; background: var(--red); border-color: var(--red); }

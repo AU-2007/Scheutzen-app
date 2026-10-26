@@ -1238,7 +1238,9 @@ def users():
         show = "aktiv"
         rows = [r for r in rows if r["active"]]
     flt = {"q": request.args.get("q", "").strip(), "rolle": request.args.get("rolle", ""),
-           "team": request.args.get("team", type=int), "gruppe": request.args.get("gruppe", type=int)}
+           "team": request.args.get("team", type=int), "gruppe": request.args.get("gruppe", type=int),
+           "verein": request.args.get("verein", ""), "nie": request.args.get("nie") == "1"}
+    clubs = sorted({(r["club"] or "").strip() for r in rows if (r["club"] or "").strip()}, key=str.lower)
     if flt["q"]:
         needle = flt["q"].lower()
         rows = [r for r in rows if needle in " ".join(str(r[k] or "") for k in ("name", "username", "player_id", "pass_nr", "club")).lower()]
@@ -1248,8 +1250,16 @@ def users():
         rows = [r for r in rows if str(flt["team"]) in (r["team_ids"] or "").split(",")]
     if flt["gruppe"]:
         rows = [r for r in rows if str(flt["gruppe"]) in (r["group_ids"] or "").split(",")]
-    filtered = bool(flt["q"] or flt["rolle"] in ROLES or flt["team"] or flt["gruppe"])
-    return render_template("users.html", users=rows, show=show, counts=counts, flt=flt, filtered=filtered,
+    if flt["verein"] == "-":
+        rows = [r for r in rows if not (r["club"] or "").strip()]
+    elif flt["verein"]:
+        rows = [r for r in rows if (r["club"] or "").strip().lower() == flt["verein"].lower()]
+    if flt["nie"]:
+        rows = [r for r in rows if not r["last_login"]]
+    filtered = bool(flt["q"] or flt["rolle"] in ROLES or flt["team"] or flt["gruppe"] or flt["verein"] or flt["nie"])
+    return render_template("users.html", users=rows, show=show, counts=counts, flt=flt, filtered=filtered, clubs=clubs,
+                           BULK=BULK_ACTIONS,
+                           back=request.full_path.rstrip("?"),
                            teams=q("SELECT id, name FROM teams ORDER BY name"), groups=q("SELECT id, name FROM groups ORDER BY name"))
 
 
@@ -1258,6 +1268,53 @@ def temp_locked_names():
     since = (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")
     return {r["n"].lower() for r in q("""SELECT username n FROM login_log WHERE ok=0 AND at>=?
                                          GROUP BY lower(username) HAVING COUNT(*)>=?""", (since, MAX_FAILED_LOGINS))}
+
+
+BULK_ACTIONS = {"sperren": "Sperren", "entsperren": "Entsperren", "loeschen": "Endgültig löschen",
+                **{f"rolle_{k}": f"Rolle: {v}" for k, v in ROLES.items()}}
+
+
+@app.route("/benutzer/massen", methods=["POST"])
+@admin_required
+def users_bulk():
+    """Mehrere Benutzer auf einmal sperren, entsperren, löschen oder eine Rolle geben."""
+    back = safe_next(request.form.get("back"), url_for("users"))
+    me_id = current_user()["id"]
+    ids = [i for i in {int(x) for x in request.form.getlist("ids") if x.isdigit()} if i != me_id]
+    act = request.form.get("action", "")
+    if not ids or act not in BULK_ACTIONS:
+        flash("Bitte Benutzer und eine Aktion auswählen." if not ids else "Unbekannte Aktion.", "error")
+        return redirect(back)
+    if act == "loeschen" and request.form.get("confirm", "").strip().upper() != "LÖSCHEN":
+        flash("Zum Löschen bitte LÖSCHEN in das Bestätigungsfeld tippen. Es wurde nichts gelöscht.", "error")
+        return redirect(back)
+    marks = ",".join("?" * len(ids))
+    conn = db()
+    if act == "sperren":
+        conn.execute(f"UPDATE users SET active=0, locked_at=?, pw_ver=pw_ver+1 WHERE active=1 AND id IN ({marks})",
+                     [datetime.now().isoformat(timespec="seconds")] + ids)
+        msg = f"{len(ids)} Benutzer gesperrt."
+    elif act == "entsperren":
+        conn.execute(f"UPDATE users SET active=1, lock_reason='', locked_at=NULL WHERE id IN ({marks})", ids)
+        msg = f"{len(ids)} Benutzer entsperrt."
+    elif act == "loeschen":
+        conn.execute(f"DELETE FROM users WHERE id IN ({marks})", ids)
+        for i in ids:
+            try:
+                os.remove(os.path.join(AVATAR_DIR, f"{i}.jpg"))
+            except FileNotFoundError:
+                pass
+        msg = f"{len(ids)} Benutzer endgültig gelöscht."
+    else:
+        role = act.split("_", 1)[1]
+        conn.execute(f"UPDATE users SET role=? WHERE id IN ({marks})", [role] + ids)
+        if role not in ("admin", "leader"):
+            conn.execute(f"UPDATE teams SET leader_id=NULL WHERE leader_id IN ({marks})", ids)
+        msg = f"{len(ids)} Benutzer haben jetzt die Rolle {ROLES[role]}."
+    conn.commit()
+    skipped_self = len(set(request.form.getlist("ids"))) > len(ids)
+    flash(msg + (" Dein eigenes Konto wurde ausgelassen." if skipped_self else ""), "ok")
+    return redirect(back)
 
 
 @app.route("/benutzer/<int:uid>/sperren", methods=["POST"])
@@ -2520,13 +2577,54 @@ def csv_import(kind):
         has_header = request.form.get("header") == "1"
         mapping = [request.form.get(f"col_{i}", "") for i in range(len(rows[0]) if rows else 0)]
         body = rows[1:] if has_header else rows
-        created, updated, skipped, accounts = 0, 0, 0, []
+        # Schützen-Import mit Vereinsspalte: zuerst wählen, welche Vereine übernommen werden
+        if kind == "schuetzen" and "club" in mapping:
+            ci = mapping.index("club")
+            if request.form.get("clubs_chosen") != "1":
+                counts = {}
+                for r in body:
+                    name = r[ci].strip() if ci < len(r) else ""
+                    counts[name] = counts.get(name, 0) + 1
+                own = (setting("club_name") or VEREIN_NAME).strip().lower()
+                top = max(counts, key=counts.get) if counts else ""
+                clubs = [{"name": n, "count": c,
+                          "default": "member" if (not n or n.lower() == own or (own and (own in n.lower() or n.lower() in own))
+                                                  or (n == top and not any(k.lower() == own for k in counts))) else "skip"}
+                         for n, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))]
+                return render_template("csv_import.html", kind=kind, fields=fields, preview=None, clubstep=clubs,
+                                       data=request.form.get("data", ""), header=has_header, mapping=mapping)
+            choice = {request.form.get(f"cn_{i}", "").strip().lower(): request.form.get(f"cc_{i}", "skip")
+                      for i in range(request.form.get("club_count", type=int) or 0)}
+        else:
+            ci, choice = None, {}
+        created, updated, skipped, accounts, as_opp = 0, 0, 0, [], 0
         conn = db()
         for r in body:
             rec = {}
             for i, f in enumerate(mapping):
                 if f and i < len(r) and r[i].strip():
                     rec[f] = r[i].strip()
+            if ci is not None:
+                pick = choice.get(rec.get("club", "").lower(), "skip")
+                if pick == "skip":
+                    skipped += 1
+                    continue
+                if pick == "opponent":   # als Gegnerschütze beim jeweiligen Gegnerverein ablegen
+                    sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
+                    if sname and rec.get("club"):
+                        cid = find_or_create_opp_club(conn, rec["club"])
+                        old = conn.execute("SELECT id FROM opp_shooters WHERE club_id=? AND lower(name)=lower(?)", (cid, sname)).fetchone()
+                        if old:
+                            conn.execute("""UPDATE opp_shooters SET pass_nr=COALESCE(NULLIF(?, ''), pass_nr),
+                                            player_id=COALESCE(NULLIF(?, ''), player_id) WHERE id=?""",
+                                         (rec.get("pass_nr", ""), rec.get("player_id", ""), old[0]))
+                        else:
+                            conn.execute("INSERT INTO opp_shooters (club_id, name, pass_nr, player_id) VALUES (?,?,?,?)",
+                                         (cid, sname, rec.get("pass_nr", ""), rec.get("player_id", "")))
+                        as_opp += 1
+                    else:
+                        skipped += 1
+                    continue
             if kind == "gegner":
                 if not rec.get("club"):
                     skipped += 1
@@ -2574,7 +2672,8 @@ def csv_import(kind):
                 accounts.append({"name": name, "username": username, "password": pw})
                 created += 1
         conn.commit()
-        flash(f"Import fertig: {created} neu, {updated} aktualisiert{f', {skipped} übersprungen' if skipped else ''}.", "ok")
+        flash(f"Import fertig: {created} neu, {updated} aktualisiert{f', {as_opp} als Gegnerschützen' if as_opp else ''}"
+              f"{f', {skipped} übersprungen' if skipped else ''}.", "ok")
         if accounts:
             return render_template("import_result.html", accounts=accounts)
         return redirect(url_for("users") if kind == "schuetzen" else url_for("opponents"))

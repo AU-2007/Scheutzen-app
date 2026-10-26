@@ -18,28 +18,83 @@
   <select name="rolle" aria-label="Rolle"><option value="">Alle Rollen</option>{% for k, label in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if flt.rolle == k }}>{{ label }}</option>{% endfor %}</select>
   <select name="team" aria-label="Mannschaft"><option value="">Alle Mannschaften</option>{% for t in teams %}<option value="{{ t.id }}" {{ 'selected' if flt.team == t.id }}>{{ t.name }}</option>{% endfor %}</select>
   <select name="gruppe" aria-label="Trainingsgruppe"><option value="">Alle Gruppen</option>{% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if flt.gruppe == g.id }}>{{ g.name }}</option>{% endfor %}</select>
+  <select name="verein" aria-label="Verein"><option value="">Alle Vereine</option><option value="-" {{ 'selected' if flt.verein == '-' }}>ohne Verein</option>{% for c in clubs %}<option value="{{ c }}" {{ 'selected' if flt.verein == c }}>{{ c }}</option>{% endfor %}</select>
+  <label class="check small filter-check"><input type="checkbox" name="nie" value="1" {{ 'checked' if flt.nie }}> nie angemeldet</label>
   <button class="btn">Filtern</button>
 </form>
 {% if filtered %}<p class="small muted" style="margin:-2px 0 8px">{{ users|length }} Treffer · <a href="{{ url_for('users', zeige=show if show == 'gesperrt' else None) }}">Filter zurücksetzen</a></p>{% endif %}
-<div class="card flush">
-  <table>
-    <thead><tr><th>Name</th><th>Rolle</th><th class="hide-sm">Mannschaften · Gruppen</th><th class="hide-sm">Zuletzt da</th></tr></thead>
-    <tbody>
-    {% for u in users %}
-      <tr class="{{ 'inactive' if not u.active }}">
-        <td><a class="strong" href="{{ url_for('user_edit', uid=u.id) }}">{{ u.name }}</a><div class="muted small">{{ u.username }}{% if u.player_id %} · ID {{ u.player_id }}{% endif %}{% if u.pass_nr %} · Pass {{ u.pass_nr }}{% endif %}{% if u.club %} · {{ u.club }}{% endif %}</div>
-          {% if not u.active %}<div class="small"><span class="pill av-nein">gesperrt</span>{% if u.locked_at %} <span class="muted">seit {{ u.locked_at[:10]|datum }}</span>{% endif %}{% if u.lock_reason %} · {{ u.lock_reason }}{% endif %}</div>{% endif %}
-          {% if u.temp_locked %}<form method="post" action="{{ url_for('user_unlock', uid=u.id) }}" class="inline small" style="margin-top:4px">
-            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="zurueck" value="liste">
-            <span class="pill av-vielleicht">10 Fehlversuche</span><button class="linkbtn accent">Sperre aufheben</button></form>{% endif %}</td>
-        <td><span class="pill role-{{ u.role }}">{{ ROLES[u.role] }}</span></td>
-        <td class="hide-sm muted small">{{ u.teams or '–' }}{% if u.group_names %}<br>{{ u.group_names }}{% endif %}</td>
-        <td class="hide-sm small {{ 'muted' if u.last_seen }}">{% if u.last_seen %}{{ u.last_seen|seit }}{% elif u.role != 'admin' %}<span class="pill open">nie angemeldet</span>{% else %}–{% endif %}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="4" class="muted">{{ 'Keine Treffer.' if filtered else ('Niemand ist gesperrt.' if show == 'gesperrt' else 'Keine Benutzer.') }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
+
+<form method="post" action="{{ url_for('users_bulk') }}" id="bulk">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="back" value="{{ back }}">
+  <div class="bulk-bar card" id="bulk-bar" hidden>
+    <b id="bulk-count">0 ausgewählt</b>
+    <select name="action" id="bulk-action" aria-label="Aktion für die Auswahl" required>
+      <option value="">Aktion wählen …</option>
+      {% for k, label in BULK.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}
+    </select>
+    <input name="confirm" id="bulk-confirm" placeholder="Zum Löschen LÖSCHEN eintippen" autocomplete="off" hidden aria-label="Löschen bestätigen">
+    <button class="btn primary" id="bulk-go">Ausführen</button>
+    <button type="button" class="linkbtn small accent" id="bulk-none">Auswahl aufheben</button>
+  </div>
+  <div class="card flush">
+    <table>
+      <thead><tr>
+        <th class="sel"><input type="checkbox" id="sel-all" aria-label="Alle {{ users|length }} angezeigten auswählen"></th>
+        <th>Name</th><th>Rolle</th><th class="hide-sm">Mannschaften · Gruppen</th><th class="hide-sm">Zuletzt da</th>
+      </tr></thead>
+      <tbody>
+      {% for u in users %}
+        <tr class="{{ 'inactive' if not u.active }}">
+          <td class="sel">{% if u.id != me.id %}<input type="checkbox" name="ids" value="{{ u.id }}" class="sel-one" aria-label="{{ u.name }} auswählen">{% endif %}</td>
+          <td><a class="strong" href="{{ url_for('user_edit', uid=u.id) }}">{{ u.name }}</a><div class="muted small">{{ u.username }}{% if u.player_id %} · ID {{ u.player_id }}{% endif %}{% if u.pass_nr %} · Pass {{ u.pass_nr }}{% endif %}{% if u.club %} · {{ u.club }}{% endif %}</div>
+            {% if not u.active %}<div class="small"><span class="pill av-nein">gesperrt</span>{% if u.locked_at %} <span class="muted">seit {{ u.locked_at[:10]|datum }}</span>{% endif %}{% if u.lock_reason %} · {{ u.lock_reason }}{% endif %}</div>{% endif %}
+            {% if u.temp_locked %}<div class="small" style="margin-top:4px"><span class="pill av-vielleicht">10 Fehlversuche</span>
+              <button class="linkbtn accent" form="unlock-{{ u.id }}">Sperre aufheben</button></div>{% endif %}</td>
+          <td><span class="pill role-{{ u.role }}">{{ ROLES[u.role] }}</span></td>
+          <td class="hide-sm muted small">{{ u.teams or '–' }}{% if u.group_names %}<br>{{ u.group_names }}{% endif %}</td>
+          <td class="hide-sm small {{ 'muted' if u.last_seen }}">{% if u.last_seen %}{{ u.last_seen|seit }}{% elif u.role != 'admin' %}<span class="pill open">nie angemeldet</span>{% else %}–{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">{{ 'Keine Treffer.' if filtered else ('Niemand ist gesperrt.' if show == 'gesperrt' else 'Keine Benutzer.') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>
+<p class="muted small">Tipp zum Aufräumen: Filter setzen (z. B. Verein oder „nie angemeldet“), oben links alle angezeigten auswählen, dann eine Aktion wählen. Dein eigenes Konto ist nie auswählbar.</p>
+
+{# Einzelne Formulare außerhalb der Tabelle (Formulare dürfen nicht verschachtelt sein) #}
+{% for u in users if u.temp_locked %}
+<form method="post" action="{{ url_for('user_unlock', uid=u.id) }}" id="unlock-{{ u.id }}" hidden>
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="zurueck" value="liste">
+</form>
+{% endfor %}
+
+<script>
+  (function () {
+    var form = document.getElementById('bulk'), all = document.getElementById('sel-all'), bar = document.getElementById('bulk-bar'),
+        count = document.getElementById('bulk-count'), act = document.getElementById('bulk-action'), conf = document.getElementById('bulk-confirm'),
+        go = document.getElementById('bulk-go'), boxes = Array.prototype.slice.call(document.querySelectorAll('.sel-one'));
+    if (!boxes.length) { all.disabled = true; return; }
+    function sync() {
+      var n = boxes.filter(function (b) { return b.checked; }).length;
+      bar.hidden = n === 0;
+      count.textContent = n + ' ausgewählt';
+      all.checked = n === boxes.length; all.indeterminate = n > 0 && n < boxes.length;
+      var del = act.value === 'loeschen';
+      conf.hidden = !del; conf.required = del;
+      go.textContent = del ? n + ' endgültig löschen' : 'Ausführen';
+      go.classList.toggle('danger', del); go.classList.toggle('primary', !del);
+    }
+    all.addEventListener('change', function () { boxes.forEach(function (b) { b.checked = all.checked; }); sync(); });
+    boxes.forEach(function (b) { b.addEventListener('change', sync); });
+    act.addEventListener('change', sync);
+    document.getElementById('bulk-none').addEventListener('click', function () { boxes.forEach(function (b) { b.checked = false; }); sync(); });
+    form.addEventListener('submit', function (e) {
+      if (act.value === 'loeschen' && conf.value.trim().toUpperCase() !== 'LÖSCHEN') { e.preventDefault(); conf.focus(); }
+    });
+    sync();
+  })();
+</script>
 {% endblock %}

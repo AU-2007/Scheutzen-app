@@ -4,7 +4,49 @@
 <p><a href="{{ url_for('club') if me.role == 'admin' else url_for('opponents') }}" class="back">← zurück</a></p>
 <h1>{{ 'Schützen' if kind == 'schuetzen' else 'Gegner' }} importieren</h1>
 
-{% if not preview %}
+{% if clubstep %}
+<p class="muted">Die Datei enthält Schützen aus {{ clubstep|length }} Verein{{ 'en' if clubstep|length != 1 }}. Leg fest, wer als Mitglied angelegt wird. Schützen anderer Vereine kannst du als Gegnerschützen übernehmen oder weglassen.</p>
+<form method="post">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="save">
+  <input type="hidden" name="clubs_chosen" value="1">
+  <input type="hidden" name="club_count" value="{{ clubstep|length }}">
+  {% if header %}<input type="hidden" name="header" value="1">{% endif %}
+  {% for f in mapping %}<input type="hidden" name="col_{{ loop.index0 }}" value="{{ f }}">{% endfor %}
+  <textarea name="data" hidden>{{ data }}</textarea>
+  <div class="card flush">
+    <table class="club-pick">
+      <thead><tr><th>Verein</th><th class="num">Schützen</th><th>Übernehmen als</th></tr></thead>
+      <tbody>
+      {% for c in clubstep %}
+        <tr>
+          <td>{{ c.name or '(ohne Verein)' }}<input type="hidden" name="cn_{{ loop.index0 }}" value="{{ c.name }}"></td>
+          <td class="num">{{ c.count }}</td>
+          <td><select name="cc_{{ loop.index0 }}" aria-label="{{ c.name or 'ohne Verein' }} übernehmen als">
+            <option value="member" {{ 'selected' if c.default == 'member' }}>Mitglieder (Benutzer)</option>
+            {% if c.name %}<option value="opponent">Gegnerschützen</option>{% endif %}
+            <option value="skip" {{ 'selected' if c.default == 'skip' }}>Nicht importieren</option>
+          </select></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="inline wrap" style="margin-top:12px">
+    <button type="button" class="btn small-btn" data-all="skip">Alle auf „Nicht importieren“</button>
+  </div>
+  <p class="muted small">Vorauswahl: euer Verein (laut Vereinsdaten) bzw. der häufigste Verein als Mitglieder, alle anderen werden nicht importiert.</p>
+  <div class="inline" style="margin-top:14px">
+    <button class="btn primary">Importieren</button>
+    <a class="btn" href="{{ url_for('csv_import', kind=kind) }}">Andere Datei</a>
+  </div>
+</form>
+<script>
+  document.querySelectorAll('[data-all]').forEach(function (b) {
+    b.addEventListener('click', function () { document.querySelectorAll('.club-pick select').forEach(function (s) { s.value = b.dataset.all; }); });
+  });
+</script>
+{% elif not preview %}
 <div class="card stack narrow">
   {% if kind == 'schuetzen' %}
   <p style="margin:0">Mögliche Quellen:</p>
@@ -12,7 +54,7 @@
     <li><b>DISAG OpticScore Server:</b> Extras → Optionen → Datenverwaltung → Import/Export von Stammdaten, als CSV exportieren.</li>
     <li><b>Excel- oder Mitgliederliste:</b> Speichern unter → CSV.</li>
   </ul>
-  <p class="muted small" style="margin:0">Schützen, die es schon gibt (gleiche Spieler-ID oder gleicher Name), werden nur ergänzt. Neue bekommen einen Benutzernamen und ein Startpasswort, das du nach dem Import siehst.</p>
+  <p class="muted small" style="margin:0">Schützen, die es schon gibt (gleiche Spieler-ID oder gleicher Name), werden nur ergänzt. Neue bekommen einen Benutzernamen und ein Startpasswort, das du nach dem Import siehst. Enthält die Datei eine Spalte „Verein“, wählst du vor dem Import, welche Vereine übernommen werden.</p>
   {% else %}
   <p class="muted small" style="margin:0">Eine CSV-Datei mit Verein, Mannschaft und Ort, zum Beispiel aus einer Excel-Liste (Speichern unter → CSV). Doppelte Einträge werden erkannt.</p>
   {% endif %}
@@ -23,7 +65,7 @@
   </form>
 </div>
 {% else %}
-<p class="muted">{{ preview.count }} Zeilen gefunden. Ordne die Spalten zu und prüfe die Vorschau.</p>
+<p class="muted">{{ preview.count }} Zeilen gefunden. Ordne die Spalten zu und prüfe die Vorschau.{% if kind == 'schuetzen' %} Ist eine Spalte als „Verein“ zugeordnet, wählst du im nächsten Schritt, welche Vereine übernommen werden.{% endif %}</p>
 <form method="post">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="step" value="save">
@@ -45,7 +87,7 @@
   </div>
   {% if preview.count > preview.rows|length %}<p class="muted small">… und {{ preview.count - preview.rows|length }} weitere Zeilen.</p>{% endif %}
   <div class="inline" style="margin-top:14px">
-    <button class="btn primary">Importieren</button>
+    <button class="btn primary">{{ 'Weiter' if kind == 'schuetzen' else 'Importieren' }}</button>
     <a class="btn" href="{{ url_for('csv_import', kind=kind) }}">Andere Datei</a>
   </div>
 </form>

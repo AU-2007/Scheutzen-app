@@ -1,0 +1,23 @@
+# Zusatz für den Betrieb direkt im Internet (VPS): Caddy übernimmt HTTPS auf Port 80/443.
+# Aktivieren über COMPOSE_FILE in der .env (siehe README, Abschnitt "Cloud-VPS").
+services:
+  caddy:
+    image: caddy:2
+    container_name: schuetzen-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN:?DOMAIN in der .env setzen}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - mannschaften
+
+volumes:
+  caddy_data:
+  caddy_config:

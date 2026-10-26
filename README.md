@@ -78,6 +78,25 @@ Der RWK-Onlinemelder hat keine Schnittstelle. Die App bindet ihn so an:
 - **Termin verlegen:** Beim Wettkampf beantragt der Mannschaftsführer einen neuen Termin. Die App erstellt den Antragstext für Gegner und Rundenwettkampfleiter. Nach deren Zustimmung auf *Bestätigt* tippen: Der Termin wird geändert und alle sagen neu zu. Ein späterer RWK-Import überschreibt verlegte Termine nicht ungefragt.
 - **Ergebnis melden:** Sobald Ringe eingetragen sind, zeigt der Wettkampf das Ergebnis fertig zum Abtippen beziehungsweise Kopieren, mit einem Knopf zum RWK-Onlinemelder.
 
+## Auf einem Cloud-VPS betreiben
+
+Auf einem VPS (Ubuntu oder Debian) übernimmt Caddy HTTPS mit automatischem Let's-Encrypt-Zertifikat.
+
+1. DNS: Einen A-Eintrag (z. B. `mannschaft.meinverein.de`) auf die IP des VPS setzen.
+2. Firewall: Nur die Ports 22, 80 und 443 öffnen (`ufw allow OpenSSH; ufw allow 80; ufw allow 443/tcp; ufw allow 443/udp; ufw enable`).
+3. Docker installieren (`curl -fsSL https://get.docker.com | sh`), Repository nach `/opt/schuetzenverein` klonen, `data/` anlegen (`chown 1000:1000`).
+4. `.env` wie oben, zusätzlich:
+   ```
+   DOMAIN=mannschaft.meinverein.de
+   COMPOSE_FILE=docker-compose.yml:docker-compose.caddy.yml
+   BIND_IP=127.0.0.1
+   COOKIE_SECURE=1
+   TRUST_PROXY=1
+   ```
+5. `docker compose up -d --build` – nach einer Minute ist die App unter `https://<DOMAIN>` erreichbar.
+
+Port 8000 ist dabei nur intern erreichbar (`BIND_IP=127.0.0.1`). Updates wie gewohnt mit `./update.sh`.
+
 ## Von außen erreichbar machen
 
 Damit Mitglieder auch von zu Hause darauf zugreifen können, braucht ihr einen Reverse Proxy mit HTTPS, zum Beispiel Nginx Proxy Manager, Caddy oder Traefik, oder eine Weiterleitung über die Sophos-Firewall. Stellt die App **nicht ohne HTTPS** ins Internet. Läuft alles über HTTPS, setzt in der `.env` den Wert `COOKIE_SECURE=1`.
@@ -135,6 +154,12 @@ Unter *Benutzer* einen Benutzer öffnen:
 - **Endgültig löschen:** Zeigt vorher, was mit gelöscht wird (Ergebnisse, Aufstellungen, Rückmeldungen). Zur Sicherheit muss der Benutzername eingetippt werden.
 
 Sich selbst kann der Admin weder sperren noch löschen.
+
+## Viele Benutzer auf einmal bearbeiten
+
+In der Benutzerliste nach Verein, Rolle, Mannschaft, Gruppe oder „nie angemeldet“ filtern, oben links alle angezeigten auswählen (oder einzelne anhaken) und eine Aktion wählen: sperren, entsperren, Rolle ändern oder endgültig löschen. Zum Löschen muss `LÖSCHEN` eingetippt werden. Das eigene Konto ist nie auswählbar.
+
+Beim Import von Schützen mit Vereinsspalte fragt die App vorher je Verein: als Mitglieder anlegen, als Gegnerschützen übernehmen oder nicht importieren.
 
 ## Passwort vergessen?
 

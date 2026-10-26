@@ -1,0 +1,8 @@
+# HTTPS-Reverse-Proxy für den Betrieb auf einem VPS.
+# Caddy holt und verlängert das Let's-Encrypt-Zertifikat automatisch.
+# Die Domain kommt aus DOMAIN in der .env.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy mannschaften:8000
+	header -Server
+}

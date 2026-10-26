@@ -136,8 +136,8 @@ bash scripts/einrichten.sh
 
 Das richtet ein:
 - **Automatische Linux-Sicherheitsupdates** jede Nacht, Neustart bei Kernel-Updates um 04:30 (App und Tunnel starten von selbst wieder)
-- **fail2ban**: sperrt IPs nach 5 falschen SSH-Anmeldungen
-- **SSH**: Passwort-Anmeldung aus, aber nur wenn bereits ein SSH-Schlüssel hinterlegt ist
+- **fail2ban**: sperrt IPs nach 4 falschen SSH-Anmeldungen für 1 Stunde, bei Wiederholung immer länger (bis 1 Woche)
+- **SSH**: höchstens 4 Versuche je Verbindung, Passwort-Anmeldung bleibt erlaubt (nur Schlüssel: `SSH_NUR_SCHLUESSEL=1 bash scripts/einrichten.sh`)
 - **Firewall** (ufw) mit offenem SSH, **Docker-Logs** begrenzt auf 3 × 10 MB
 - **Zeitpläne**: Sicherung täglich 03:15, Update-Prüfung täglich 06:30, Wartung sonntags 04:00
 

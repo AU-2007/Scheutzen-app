@@ -4,7 +4,8 @@
 # Richtet ein:
 #  - automatische Sicherheitsupdates für Linux (unattended-upgrades), Neustart bei Bedarf um 04:30
 #  - fail2ban: sperrt IPs nach falschen SSH-Anmeldungen
-#  - SSH: Passwort-Anmeldung aus (nur wenn ein SSH-Schlüssel hinterlegt ist, sonst nur Hinweis)
+#  - SSH: höchstens 4 Versuche je Verbindung; Passwort-Anmeldung bleibt erlaubt
+#    (abschalten nur mit:  SSH_NUR_SCHLUESSEL=1 bash scripts/einrichten.sh)
 #  - Firewall ufw: nur SSH offen (Ports 80/443 bleiben, falls schon freigegeben)
 #  - Docker-Logs begrenzen (max. 3 x 10 MB je Container)
 #  - Zeitpläne: Sicherung täglich 03:15, Update-Prüfung täglich 06:30, Wartung sonntags 04:00
@@ -36,35 +37,44 @@ cat > /etc/fail2ban/jail.d/schuetzen.conf <<'CONF'
 [sshd]
 enabled  = true
 backend  = systemd
-maxretry = 5
+maxretry = 4
 findtime = 10m
 bantime  = 1h
+# Wiederholungstäter werden immer länger gesperrt (bis 1 Woche)
 bantime.increment = true
+bantime.maxtime = 1w
 CONF
 systemctl enable fail2ban >/dev/null 2>&1 || true
 systemctl restart fail2ban || warn "fail2ban ließ sich nicht starten: journalctl -u fail2ban"
 
 info "SSH absichern"
-keys=0
-for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
-  [ -s "$f" ] && keys=1
-done
-if [ "$keys" -eq 1 ]; then
-  # 01-… wird vor den Einstellungen des Anbieters (z. B. 50-cloud-init.conf) gelesen und gewinnt
-  cat > /etc/ssh/sshd_config.d/01-schuetzen.conf <<'CONF'
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-PermitRootLogin prohibit-password
-MaxAuthTries 4
-CONF
-  if sshd -t; then
-    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+# Passwort-Anmeldung bleibt erlaubt. Nur mit SSH_NUR_SCHLUESSEL=1 wird sie abgeschaltet
+# (dann muss bereits ein SSH-Schlüssel hinterlegt sein, sonst passiert nichts).
+# 01-… wird vor den Einstellungen des Anbieters (z. B. 50-cloud-init.conf) gelesen und gewinnt.
+conf=/etc/ssh/sshd_config.d/01-schuetzen.conf
+{
+  echo "# Schützen-App: SSH-Grundabsicherung (scripts/einrichten.sh)"
+  echo "MaxAuthTries 4"
+  echo "LoginGraceTime 30"
+  echo "PermitEmptyPasswords no"
+  echo "X11Forwarding no"
+} > "$conf"
+if [ "${SSH_NUR_SCHLUESSEL:-0}" = "1" ]; then
+  keys=0
+  for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do [ -s "$f" ] && keys=1; done
+  if [ "$keys" -eq 1 ]; then
+    printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\n' >> "$conf"
     info "SSH: Anmeldung nur noch mit Schlüssel. Teste in einem ZWEITEN Fenster, ob du noch reinkommst!"
   else
-    rm -f /etc/ssh/sshd_config.d/01-schuetzen.conf; warn "SSH-Konfiguration ungültig, nichts geändert."
+    warn "SSH_NUR_SCHLUESSEL=1, aber kein SSH-Schlüssel hinterlegt: Passwort-Anmeldung bleibt an."
   fi
 else
-  warn "Kein SSH-Schlüssel hinterlegt: Passwort-Anmeldung bleibt AN. Erst einen Schlüssel einrichten, dann dieses Skript erneut starten."
+  info "SSH: Passwort-Anmeldung bleibt erlaubt, geschützt durch fail2ban (Sperre nach 4 Fehlversuchen)."
+fi
+if sshd -t; then
+  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+else
+  rm -f "$conf"; warn "SSH-Konfiguration ungültig, nichts geändert."
 fi
 
 info "Firewall"

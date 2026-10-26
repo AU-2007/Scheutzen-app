@@ -1494,6 +1494,31 @@ def device_name(agent):
     return f"{os_} · {br}" if br else os_
 
 
+def maintenance_status():
+    """Von den Wartungsskripten (scripts/*.sh) geschriebener Serverstatus, siehe data/wartung.json."""
+    import json
+    path = os.path.join(os.path.dirname(DB_PATH), "wartung.json")
+    try:
+        with open(path) as fh:
+            st = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    now = datetime.now()
+
+    def age(key):
+        try:
+            return (now - datetime.fromisoformat(st[key])).total_seconds() / 3600
+        except (KeyError, TypeError, ValueError):
+            return None
+    st["backup_age_h"] = age("last_backup")
+    st["check_age_h"] = age("checked_at")
+    st["maint_age_h"] = age("last_maintenance")
+    st["pending_list"] = st.get("pending_list") or []
+    st["app_new"] = st.get("app_new") or []
+    st["problems"] = [p_ for p_ in (st.get("problems") or "").split(";") if p_.strip()]
+    return st
+
+
 def admin_dashboard():
     import platform
     import shutil
@@ -1538,6 +1563,17 @@ def admin_dashboard():
         "no_leader": q("SELECT id, name FROM teams WHERE leader_id IS NULL ORDER BY name"),
     }
     warnings = []
+    maint = maintenance_status()
+    if maint:
+        if maint["backup_age_h"] is None or maint["backup_age_h"] > 36:
+            warnings.append("Die letzte Sicherung ist älter als 36 Stunden. Auf dem Server prüfen: ./scripts/status.sh")
+        if maint.get("pending_security"):
+            warnings.append(f"{maint['pending_security']} Sicherheitsupdates für Linux stehen aus. Sie werden nachts automatisch "
+                            "installiert, sofort mit: ./scripts/wartung.sh")
+        if maint.get("reboot_required"):
+            warnings.append("Der Server braucht einen Neustart (Kernel-Update). Er erfolgt automatisch um 04:30.")
+        for p_ in maint["problems"]:
+            warnings.append(f"Letzte Wartung: {p_}")
     if not server["secret_env"]:
         warnings.append("SECRET_KEY ist nicht in der .env gesetzt. Die App nutzt einen automatisch erzeugten Schlüssel.")
     if not server["https"]:
@@ -1548,7 +1584,7 @@ def admin_dashboard():
         warnings.append(f"Der Speicher ist zu {server['disk_pct']} % voll.")
     if q("SELECT 1 FROM users WHERE role='admin' AND must_change_pw=1", one=True):
         warnings.append("Ein Admin-Konto hat noch das Startpasswort.")
-    return render_template("admin_home.html", online=online, logins=logins, stats=stats, errors=errors,
+    return render_template("admin_home.html", online=online, logins=logins, stats=stats, errors=errors, maint=maint,
                            server=server, todo=todo, warnings=warnings)
 
 

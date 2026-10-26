@@ -125,15 +125,34 @@ Checkliste vor dem Livegang:
 7. Regelmäßig aktualisieren: `docker compose build --pull && docker compose up -d`.
 8. Datenschutz: Mitglieder darüber informieren, dass Anmeldungen mit IP und Gerät 90 Tage protokolliert werden.
 
-## Backup
+## Wartung, Sicherung, Updates
 
-Alle Daten liegen in einer einzigen Datei: `data/verein.db`. Am sichersten ist ein Backup im laufenden Betrieb so:
+Im Ordner `scripts/` liegt alles für den sicheren Betrieb. Einmal einrichten (als root):
 
 ```bash
-sqlite3 data/verein.db ".backup 'backup-$(date +%F).db'"
+cd /opt/schuetzenverein
+bash scripts/einrichten.sh
 ```
 
-Alternativ: den Ordner `data/` in eure Proxmox- oder TrueNAS-Sicherung aufnehmen.
+Das richtet ein:
+- **Automatische Linux-Sicherheitsupdates** jede Nacht, Neustart bei Kernel-Updates um 04:30 (App und Tunnel starten von selbst wieder)
+- **fail2ban**: sperrt IPs nach 5 falschen SSH-Anmeldungen
+- **SSH**: Passwort-Anmeldung aus, aber nur wenn bereits ein SSH-Schlüssel hinterlegt ist
+- **Firewall** (ufw) mit offenem SSH, **Docker-Logs** begrenzt auf 3 × 10 MB
+- **Zeitpläne**: Sicherung täglich 03:15, Update-Prüfung täglich 06:30, Wartung sonntags 04:00
+
+| Befehl | Was es tut |
+|---|---|
+| `./update.sh` | Neue App-Version von GitHub holen. Sichert vorher, prüft danach den Start und stellt bei einem Fehler automatisch die vorherige Version wieder her. |
+| `./scripts/status.sh` | Überblick: App, letzte Sicherung, anstehende Updates, Neustart nötig, Firewall, fail2ban, SSH |
+| `./scripts/backup.sh` | Sicherung jetzt (Datenbank, Profilbilder, `.env`) nach `/opt/backup`, 14 Tage aufbewahrt |
+| `./scripts/restore.sh` | Sicherungen anzeigen; mit Dateiname zurückspielen (sichert vorher den aktuellen Stand) |
+| `./scripts/pruefen.sh` | Prüft auf Linux-Paket-Updates und neue App-Versionen, ohne etwas zu installieren |
+| `./scripts/wartung.sh` | Alles auf einmal: Sicherung, Linux-Updates, App-Image neu bauen, aufräumen, Gesundheitscheck |
+
+Die **Admin-Übersicht** der App zeigt unter *Wartung & Updates* die letzte Sicherung, anstehende Linux-Pakete (Sicherheitsupdates markiert), ob ein Neustart nötig ist und ob es eine neue App-Version auf GitHub gibt.
+
+Sicherungen liegen auf demselben Server. Kopiere `/opt/backup` regelmäßig woandershin, zum Beispiel per `scp` oder `rsync` auf dein NAS.
 
 ## Update
 

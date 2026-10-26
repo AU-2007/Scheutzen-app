@@ -93,6 +93,59 @@
   {% endif %}
 </section>
 
+{# ---------- Wartung & Updates ---------- #}
+<section id="wartung">
+  <h2>Wartung &amp; Updates</h2>
+  {% if not maint %}
+  <div class="card stack">
+    <p style="margin:0">Die automatische Wartung ist noch nicht eingerichtet. Auf dem Server einmal ausführen:</p>
+    <pre class="report">cd /opt/schuetzenverein && sudo bash scripts/einrichten.sh</pre>
+    <p class="muted small" style="margin:0">Danach siehst du hier Sicherungen, anstehende Linux-Updates und neue App-Versionen.</p>
+  </div>
+  {% else %}
+  <div class="card server">
+    <dl>
+      <dt>Sicherung</dt>
+      <dd>{% if maint.last_backup %}<span class="{{ 'bad-text' if maint.backup_age_h > 36 else '' }}">{{ maint.last_backup|seit }}</span>
+        <span class="muted small">· {{ maint.last_backup_size }} · {{ maint.backup_count }} vorhanden · täglich 03:15</span>{% else %}<span class="bad-text">noch keine</span>{% endif %}</dd>
+      <dt>Linux-Pakete</dt>
+      <dd>{% if maint.pending_updates %}<b>{{ maint.pending_updates }} Update{{ 's' if maint.pending_updates != 1 }}</b>
+        {% if maint.pending_security %}<span class="pill av-nein">{{ maint.pending_security }} Sicherheit</span>{% endif %}{% else %}<span class="ok-text">aktuell</span>{% endif %}
+        {% if maint.checked_at %}<span class="muted small">· geprüft {{ maint.checked_at|seit }}</span>{% endif %}</dd>
+      <dt>Neustart nötig</dt>
+      <dd>{% if maint.reboot_required %}<span class="pill av-vielleicht">ja</span> <span class="muted small">{{ maint.reboot_pkgs|join(', ') }} · automatisch um 04:30</span>{% else %}nein{% endif %}</dd>
+      <dt>App-Version</dt>
+      <dd>{% if maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} auf GitHub</b>{% else %}<span class="ok-text">aktuell</span>{% endif %}
+        {% if maint.app_version %}<span class="muted small">· installiert {{ maint.app_version }}</span>{% endif %}</dd>
+      <dt>Letzte Wartung</dt>
+      <dd>{{ maint.last_maintenance|seit if maint.last_maintenance else 'noch nie' }} <span class="muted small">· sonntags 04:00{% if maint.ssh_banned %} · {{ maint.ssh_banned }} IPs per fail2ban gesperrt{% endif %}</span></dd>
+    </dl>
+    {% if maint.app_new %}
+    <details class="upd-list">
+      <summary class="small">Was ist neu in der App?</summary>
+      <ul class="small">{% for c in maint.app_new %}<li><span class="muted">{{ c.date }}</span> {{ c.msg }}</li>{% endfor %}</ul>
+      <p class="small muted" style="margin:0">Installieren auf dem Server: <code>./update.sh</code></p>
+    </details>
+    {% endif %}
+    {% if maint.pending_list %}
+    <details class="upd-list">
+      <summary class="small">Anstehende Paket-Updates anzeigen ({{ maint.pending_updates }})</summary>
+      <div class="flush" style="overflow-x:auto">
+        <table class="log">
+          <thead><tr><th>Paket</th><th class="hide-sm">installiert</th><th>neu</th></tr></thead>
+          <tbody>
+          {% for p in maint.pending_list %}<tr><td class="mono small">{{ p.name }}{% if p.security %} <span class="pill av-nein">Sicherheit</span>{% endif %}</td>
+            <td class="hide-sm small muted mono">{{ p.old }}</td><td class="small mono">{{ p.new }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="small muted" style="margin:6px 0 0">Sicherheitsupdates installiert der Server jede Nacht selbst, alle anderen bei der Wartung am Sonntag. Sofort: <code>./scripts/wartung.sh</code></p>
+    </details>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+
 {# ---------- Server ---------- #}
 <section>
   <h2>Server</h2>

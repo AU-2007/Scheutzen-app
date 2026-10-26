@@ -569,3 +569,11 @@ tfoot td { border-top: 1px solid var(--line); }
 .bulk-bar select, .bulk-bar input { flex: 1 1 180px; min-width: 0; width: auto; }
 th.sel, td.sel { width: 36px; padding-right: 0; }
 .bulk-bar .btn.danger { color: #fff; background: var(--red); border-color: var(--red); }
+
+/* Wartung */
+.bad-text { color: var(--red); font-weight: 600; }
+.ok-text { color: var(--green-2); font-weight: 600; }
+.upd-list { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.upd-list summary { cursor: pointer; color: var(--green-2); }
+.upd-list ul { margin: 8px 0; padding-left: 18px; }
+.upd-list table { margin-top: 8px; }

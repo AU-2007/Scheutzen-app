@@ -20,6 +20,15 @@
   <p class="muted small" style="margin:0">Daran erkennt die App, ob ihr Heim- oder Gastmannschaft seid.</p>
   <button class="btn primary">Datei prüfen</button>
 </form>
+{% if imported %}
+<form method="post" action="{{ url_for('rwk_import_remove', tid=t.id) }}" class="card stack narrow" style="margin-top:14px">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <b>Falschen Plan importiert?</b>
+  <p class="muted small" style="margin:0">{{ imported }} importierte Termin{{ 'e' if imported != 1 }} dieser Mannschaft {{ 'haben' if imported != 1 else 'hat' }} noch kein Ergebnis. Die kannst du hier auf einmal löschen und danach den richtigen Wettkampfplan importieren. Von Hand angelegte Termine und Termine mit Ringen bleiben erhalten.</p>
+  <label class="check"><input type="checkbox" name="confirm" value="1" required> Ja, die {{ imported }} importierten Termine löschen</label>
+  <button class="btn danger">Importierte Termine löschen</button>
+</form>
+{% endif %}
 {% else %}
 {% if info %}<p class="muted" style="margin-top:0">{{ info.league }} · {{ info.discipline }} {{ info.season }}</p>{% endif %}
 <form method="post" class="card stack own-pick">
@@ -29,7 +38,7 @@
   {% if found %}
   <p style="margin:0">Eure Mannschaft: <b>{{ own }}</b>{% if typed.lower() != own.lower() %} <span class="muted small">(erkannt aus „{{ typed }}“)</span>{% endif %}{% if hidden %} · <span class="muted small">{{ hidden }} Termine anderer Mannschaften ausgeblendet</span>{% endif %}</p>
   {% else %}
-  <div class="flash info" style="margin:0">„{{ typed }}“ steht nicht im Wettkampfplan. Bitte eure Mannschaft auswählen, dann zeigt die App nur eure Termine.</div>
+  <div class="flash info" style="margin:0">„{{ typed }}“ steht nicht in diesem Wettkampfplan. Prüfe, ob du die Datei der richtigen Klasse hast (im RWK-Onlinemelder erst die Klasse, dann die Mannschaft wählen). Oder wähle eure Mannschaft unten aus der Liste.</div>
   {% endif %}
   <div class="inline-form">
     <select name="rwk_name" aria-label="Eure Mannschaft">{% for x in teams %}<option {{ 'selected' if x == own }}>{{ x }}</option>{% endfor %}</select>

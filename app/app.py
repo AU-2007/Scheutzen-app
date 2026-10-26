@@ -2410,6 +2410,24 @@ def guess_pairing(summary, own_name):
     return right, 1
 
 
+@app.route("/mannschaft/<int:tid>/rwk-import/entfernen", methods=["POST"])
+@login_required
+def rwk_import_remove(tid):
+    """Alle importierten Termine ohne Ergebnisse dieser Mannschaft löschen (z. B. nach falschem Import)."""
+    t = get_team(tid)
+    if not can_manage(t):
+        abort(403)
+    if request.form.get("confirm") != "1":
+        flash("Bitte bestätigen, dass die importierten Termine gelöscht werden sollen.", "error")
+        return redirect(url_for("rwk_import", tid=tid))
+    ex("""DELETE FROM matches WHERE team_id=? AND ext_uid IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM lineup l WHERE l.match_id=matches.id AND l.rings IS NOT NULL)
+              AND NOT EXISTS (SELECT 1 FROM match_opp o WHERE o.match_id=matches.id AND o.rings IS NOT NULL)""", (tid,))
+    ex("UPDATE teams SET rwk_name='' WHERE id=?", (tid,))
+    flash("Importierte Termine ohne Ergebnis gelöscht. Jetzt kannst du den richtigen Wettkampfplan importieren.", "ok")
+    return redirect(url_for("rwk_import", tid=tid))
+
+
 def rwk_teams(events):
     """Alle Mannschaften eines Wettkampfplans mit ihrem Heim-Schießstand."""
     teams = {}
@@ -2425,16 +2443,22 @@ def rwk_teams(events):
 
 
 def resolve_own(name, teams):
-    """Eigene Mannschaft im Plan finden, auch bei kleinen Tippfehlern ('Eisnebach' -> 'Eisenbach')."""
+    """Eigene Mannschaft im Plan finden, auch bei kleinen Tippfehlern im Vereinsnamen ('Eisnebach' -> 'Eisenbach').
+    Die Mannschaftsnummer muss genau stimmen: 'SV Eisenbach 2' wird nie zu 'SV Eisenbach 3'."""
     import difflib
-    name = (name or "").strip()
+    name = " ".join((name or "").split())
     if not name:
         return None
     for t_ in teams:
         if t_.lower() == name.lower():
             return t_
-    hits = difflib.get_close_matches(name.lower(), [t_.lower() for t_ in teams], n=1, cutoff=0.75)
-    return next((t_ for t_ in teams if t_.lower() == hits[0]), None) if hits else None
+    club, nr = split_team_label(name)
+    cands = [t_ for t_ in teams if split_team_label(t_)[1] == nr]
+    if not nr and len(cands) != len(teams):
+        return None
+    hits = difflib.get_close_matches(club.lower(), [split_team_label(t_)[0].lower() for t_ in cands], n=2, cutoff=0.8)
+    found = [t_ for t_ in cands if split_team_label(t_)[0].lower() in hits]
+    return found[0] if len(found) == 1 else None
 
 
 @app.route("/mannschaft/<int:tid>/rwk-import", methods=["GET", "POST"])
@@ -2531,7 +2555,10 @@ def rwk_import(tid):
             rows.sort(key=lambda r: (r["date"], r["time"]))
     known = {o["label"].lower() for c in opponent_choices() for o in c["teams"]}
     new_teams = [x for x in teams if x != own and x.lower() not in known]
-    return render_template("rwk_import.html", t=t, rows=rows, own=own, typed=typed, teams=sorted(teams), found=own in teams,
+    imported = q("""SELECT COUNT(*) n FROM matches m WHERE team_id=? AND ext_uid IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM lineup l WHERE l.match_id=m.id AND l.rings IS NOT NULL)
+                    AND NOT EXISTS (SELECT 1 FROM match_opp o WHERE o.match_id=m.id AND o.rings IS NOT NULL)""", (tid,), one=True)["n"]
+    return render_template("rwk_import.html", t=t, rows=rows, own=own, typed=typed, teams=sorted(teams), found=own in teams, imported=imported,
                            hidden=hidden, ics_text=text if rows is not None else "", info=info, new_teams=new_teams)
 
 

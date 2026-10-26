@@ -183,7 +183,9 @@
 {% set lined = rows|selectattr('in_lineup')|list %}
 {% set report %}{{ t.name }} {{ 'vs.' if m.home else '@' }} {{ m.opponent }} ({{ m.date|datum }})
 {% for r in lined %}{{ r.name }}: {{ r.rings|ringe }}
-{% endfor %}Gesamt: {{ total|ringe }}{% if m.opponent_score is not none %} : {{ m.opponent_score|ringe }}{% endif %}{% endset %}
+{% endfor %}{% if opp_has_rings %}{{ m.opponent }}:
+{% for o in opp_rows if o.rings is not none %}{{ o.name }}: {{ o.rings|ringe }}
+{% endfor %}{% endif %}Gesamt: {{ total|ringe }}{% if m.opponent_score is not none %} : {{ m.opponent_score|ringe }}{% endif %}{% endset %}
 <section>
   <div class="card rwk-report stack">
     <div class="head-row"><b><span class="rwk-logo" aria-hidden="true">RWK</span> Ergebnis melden</b>
@@ -200,6 +202,15 @@
       .catch(function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('report')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
   });
 </script>
+{% endif %}
+
+{# ---------- Standplan ---------- #}
+{% if plan.count or manage %}
+<a class="card plan-teaser" href="{{ url_for('standplan', mid=m.id) }}">
+  <span class="plan-ico" aria-hidden="true">{{ plan.area }}</span>
+  <span><b>Standplan</b><br><span class="small muted">{{ plan.lanes }} Stände {{ plan.area }} · {% if plan.count %}{{ plan.placed }} von {{ plan.count }} Schützen eingeteilt{% else %}noch niemand aufgestellt{% endif %}</span></span>
+  <span class="plan-go" aria-hidden="true">›</span>
+</a>
 {% endif %}
 
 {# ---------- Aufstellung ---------- #}
@@ -229,12 +240,64 @@
         </tbody>
       </table>
     </div>
+    {% if opp_rows %}
+    <h3 class="opp-head" id="gegner">Gegner: {{ m.opponent }}</h3>
+    <div class="card flush">
+      <table class="lineup">
+        <thead><tr><th>Schütze</th><th class="num">Ringe</th><th></th></tr></thead>
+        <tbody>
+        {% for o in opp_rows %}
+          <tr>
+            <td>{{ o.name }}{% if o.pass_nr %} <span class="muted small">{{ o.pass_nr }}</span>{% endif %}</td>
+            <td class="num"><input class="rings" name="opp_rings_{{ o.id }}" inputmode="decimal" value="{{ o.rings|ringe if o.rings is not none }}" placeholder="–" aria-label="Ringe {{ o.name }}"></td>
+            <td class="num"><button class="linkbtn small" formaction="{{ url_for('match_opp_edit', mid=m.id) }}" name="remove_id" value="{{ o.id }}" formnovalidate aria-label="{{ o.name }} entfernen">Entfernen</button></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+        {% if opp_has_rings %}<tfoot><tr><td class="muted small">Summe Gegner</td><td class="num strong">{{ opp_sum|ringe }}</td><td></td></tr></tfoot>{% endif %}
+      </table>
+    </div>
+    <div class="row2 end"><span></span><button class="btn primary">Speichern</button></div>
+    {% else %}
     <div class="row2 end">
-      <label>Ringe Gegner<input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m.opponent_score is not none }}"></label>
+      <label>Ringe Gegner (Summe)<input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m.opponent_score is not none }}"></label>
       <button class="btn primary">Speichern</button>
     </div>
-    <p class="muted small">Haken setzen = aufgestellt. Ringe nur bei aufgestellten Schützen. Zehntel mit Komma, z. B. 389,4.</p>
+    {% endif %}
+    <p class="muted small">Haken setzen = aufgestellt. Ringe nur bei aufgestellten Schützen. Zehntel mit Komma, z. B. 389,4.{% if opp_rows %} Die Summe des Gegners rechnet die App aus den einzelnen Ringen.{% endif %}</p>
   </form>
+
+  <div class="card stack opp-add" {% if not opp_rows %}id="gegner"{% endif %}>
+    <b>Gegnerschützen eintragen</b>
+    {% if opp_team %}
+    {% if opp_pool %}
+    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
+      <select name="shooter_id" required aria-label="Schütze von {{ opp_team.club_name }}">
+        <option value="">Schütze von {{ opp_team.club_name }} …</option>
+        {% for x in opp_pool %}<option value="{{ x.id }}">{{ x.name }}{% if x.team_name and x.team_id != opp_team.id %} (Mannschaft {{ x.team_name }}){% endif %}</option>{% endfor %}
+      </select>
+      <button class="btn">Hinzufügen</button>
+    </form>
+    {% if opp_pool|selectattr('team_id', 'equalto', opp_team.id)|list %}
+    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="team">
+      <button class="btn small-btn">Alle Stammschützen von {{ opp_team.club_name }} {{ opp_team.name }} übernehmen</button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
+      <div class="row2">
+        <label>{{ 'Oder neuer Schütze' if opp_team and opp_pool else 'Name' }}<input name="name" placeholder="Vor- und Nachname" required></label>
+        <label>Pass-Nr. <span class="muted small">(optional)</span><input name="pass_nr"></label>
+      </div>
+      {% if opp_team %}<label class="check"><input type="checkbox" name="save" value="1" checked> In die Schützenliste von {{ opp_team.club_name }} aufnehmen</label>{% endif %}
+      <button class="btn">Hinzufügen</button>
+    </form>
+    {% if not opp_team %}<p class="muted small" style="margin:0">Tipp: Wählst du beim <a href="{{ url_for('match_edit', mid=m.id) }}">Termin</a> den Gegner aus der Gegnerliste, stehen dessen Schützen hier zur Auswahl.</p>{% endif %}
+  </div>
   {% if helpers %}
   <form method="post" action="{{ url_for('match_add_helper', mid=m.id) }}" class="inline-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -260,6 +323,16 @@
       </tbody>
     </table>
   </div>
+  {% if opp_rows %}
+  <h3 class="opp-head">Gegner: {{ m.opponent }}</h3>
+  <div class="card flush">
+    <table>
+      <tbody>
+      {% for o in opp_rows %}<tr><td>{{ o.name }}</td><td class="num strong">{{ o.rings|ringe if o.rings is not none else '' }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   {% endif %}
 </section>
 <script>

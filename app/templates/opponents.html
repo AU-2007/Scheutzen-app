@@ -5,40 +5,123 @@
   <h1>Gegner</h1>
   <a class="btn small-btn" href="{{ url_for('csv_import', kind='gegner') }}">Aus Datei importieren</a>
 </div>
-<p class="muted">Diese Vereine und Mannschaften stehen beim Anlegen eines Wettkampfs zur Auswahl. Der Ort wird bei Auswärtsterminen automatisch übernommen.</p>
+<p class="muted">Jeder Gegnerverein wird einmal angelegt, mit seinen Mannschaften und Schützen. Beim Wettkampf wählst du dann nur noch die Mannschaft aus und übernimmst die Schützen mit einem Klick.</p>
 
-<form method="post" class="card stack">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <div class="opp-grid">
-    <label>Verein<input name="club" placeholder="z. B. SG Bergheim" required></label>
-    <label>Mannschaft<input name="team" placeholder="z. B. 1"></label>
-    <label>Ort / Schießstand<input name="location" placeholder="z. B. Schützenhaus Bergheim"></label>
-  </div>
-  <button class="btn primary">Gegner hinzufügen</button>
+<details class="card" {{ 'open' if not total }}>
+  <summary class="strong" style="cursor:pointer">+ Neuer Gegnerverein</summary>
+  <form method="post" class="stack" style="margin-top:12px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="club_save">
+    <div class="opp-grid">
+      <label>Verein<input name="name" placeholder="z. B. SG Bergheim" required></label>
+      <label>Ort / Schießstand<input name="location" placeholder="z. B. Schützenhaus Bergheim"></label>
+      <label>Vereinsnummer <span class="muted small">(optional)</span><input name="club_nr"></label>
+    </div>
+    <div class="row2">
+      <label>Erste Mannschaft <span class="muted small">(optional)</span><input name="team" placeholder="z. B. 1"></label>
+      <label>Disziplin
+        <select name="discipline"><option value="">–</option>{% for d in disciplines %}<option>{{ d }}</option>{% endfor %}</select></label>
+    </div>
+    <button class="btn primary">Verein anlegen</button>
+  </form>
+</details>
+
+{% if total > 6 or search %}
+<form method="get" class="inline-form" style="margin-top:12px">
+  <input type="search" name="q" value="{{ search }}" placeholder="Verein, Ort oder Schütze suchen" aria-label="Gegner suchen">
+  <button class="btn">Suchen</button>
+  {% if search %}<a class="btn" href="{{ url_for('opponents') }}">Alle</a>{% endif %}
 </form>
+{% endif %}
 
-{% if rows %}
 <div class="list" style="margin-top:12px">
-  {% for o in rows %}
-  <details class="card slot-card">
-    <summary><b>{{ o.club }}{% if o.team %} {{ o.team }}{% endif %}</b>{% if o.location %}<span class="muted small">{{ o.location }}</span>{% endif %}<span class="edit-hint small">Ändern</span></summary>
-    <form method="post" class="stack" style="margin-top:12px">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="id" value="{{ o.id }}">
-      <div class="opp-grid">
-        <label>Verein<input name="club" value="{{ o.club }}" required></label>
-        <label>Mannschaft<input name="team" value="{{ o.team }}"></label>
-        <label>Ort / Schießstand<input name="location" value="{{ o.location }}"></label>
+  {% for d in data %}
+  {% set c = d.club %}
+  <details class="card opp-club" id="verein-{{ c.id }}">
+    <summary>
+      <b>{{ c.name }}</b>
+      <span class="muted small">{% if c.location %}{{ c.location }} · {% endif %}{{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }} · {{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}</span>
+      <span class="small accent-link">Öffnen</span>
+    </summary>
+
+    <div class="opp-body">
+      {# --- Mannschaften --- #}
+      <h3>Mannschaften</h3>
+      <div class="opp-items">
+      {% for ot in d.teams %}
+      <details class="opp-item">
+        <summary><b>{{ c.name }} {{ ot.name }}</b><span class="muted small">{{ ot.discipline or 'Disziplin offen' }}{% if ot.matches %} · {{ ot.matches }} {{ 'Wettkampf' if ot.matches == 1 else 'Wettkämpfe' }}{% endif %}</span><span class="small accent-link">Ändern</span></summary>
+        <form method="post" class="opp-row">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="club_id" value="{{ c.id }}"><input type="hidden" name="team_id" value="{{ ot.id }}">
+          <input name="name" value="{{ ot.name }}" placeholder="z. B. 1" aria-label="Mannschaft">
+          <select name="discipline" aria-label="Disziplin"><option value="">–</option>{% for dd in disciplines %}<option {{ 'selected' if ot.discipline == dd }}>{{ dd }}</option>{% endfor %}</select>
+          <button class="btn small-btn" name="action" value="team_save">Speichern</button>
+          <button class="linkbtn small" name="action" value="team_delete" onclick='return confirm({{ ("Mannschaft " ~ c.name ~ " " ~ ot.name ~ " löschen?")|tojson }})'>Löschen</button>
+        </form>
+      </details>
+      {% else %}<p class="muted small">Noch keine Mannschaft.</p>{% endfor %}
       </div>
-      <div class="inline">
-        <button class="btn primary">Speichern</button>
-        <button class="btn danger" name="delete" value="1" formnovalidate onclick="return confirm('Gegner löschen? Bestehende Wettkämpfe bleiben erhalten.')">Löschen</button>
+      <form method="post" class="opp-row add">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="club_id" value="{{ c.id }}"><input type="hidden" name="action" value="team_add">
+        <input name="name" placeholder="Neue Mannschaft, z. B. 2" aria-label="Neue Mannschaft">
+        <select name="discipline" aria-label="Disziplin"><option value="">Disziplin …</option>{% for dd in disciplines %}<option>{{ dd }}</option>{% endfor %}</select>
+        <button class="btn small-btn">+ Mannschaft</button>
+      </form>
+
+      {# --- Schützen --- #}
+      <h3>Schützen</h3>
+      <div class="opp-items">
+      {% for x in d.shooters %}
+      <details class="opp-item">
+        <summary><b>{{ x.name }}</b><span class="muted small">{{ 'Mannschaft ' ~ d.team_names[x.team_id] if x.team_id in d.team_names else 'ohne Mannschaft' }}{% if x.pass_nr %} · {{ x.pass_nr }}{% endif %}</span><span class="small accent-link">Ändern</span></summary>
+        <form method="post" class="opp-row shooter">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="club_id" value="{{ c.id }}"><input type="hidden" name="shooter_id" value="{{ x.id }}">
+          <input name="name" value="{{ x.name }}" required aria-label="Name">
+          <input name="pass_nr" value="{{ x.pass_nr }}" placeholder="Pass-Nr." aria-label="Pass-Nr.">
+          <select name="team_id" aria-label="Mannschaft"><option value="">ohne Mannschaft</option>{% for ot in d.teams %}<option value="{{ ot.id }}" {{ 'selected' if x.team_id == ot.id }}>Mannschaft {{ ot.name or '–' }}</option>{% endfor %}</select>
+          <button class="btn small-btn" name="action" value="shooter_save">Speichern</button>
+          <button class="linkbtn small" name="action" value="shooter_delete" formnovalidate>Entfernen</button>
+        </form>
+      </details>
+      {% else %}<p class="muted small">Noch keine Schützen. Du kannst sie auch direkt beim Wettkampf eintragen.</p>{% endfor %}
       </div>
-    </form>
+      <form method="post" class="opp-row shooter add">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="club_id" value="{{ c.id }}"><input type="hidden" name="action" value="shooter_add">
+        <input name="name" placeholder="Neuer Schütze: Vor- und Nachname" required aria-label="Neuer Schütze">
+        <input name="pass_nr" placeholder="Pass-Nr." aria-label="Pass-Nr.">
+        <select name="team_id" aria-label="Mannschaft"><option value="">ohne Mannschaft</option>{% for ot in d.teams %}<option value="{{ ot.id }}" {{ 'selected' if loop.first }}>Mannschaft {{ ot.name or '–' }}</option>{% endfor %}</select>
+        <button class="btn small-btn">+ Schütze</button>
+      </form>
+
+      {# --- Verein --- #}
+      <details class="opp-club-edit">
+        <summary class="small">Vereinsdaten ändern oder Verein löschen</summary>
+        <form method="post" class="stack" style="margin-top:10px">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="club_id" value="{{ c.id }}">
+          <div class="opp-grid">
+            <label>Verein<input name="name" value="{{ c.name }}" required></label>
+            <label>Ort / Schießstand<input name="location" value="{{ c.location }}"></label>
+            <label>Vereinsnummer<input name="club_nr" value="{{ c.club_nr }}"></label>
+          </div>
+          <div class="inline wrap">
+            <button class="btn primary" name="action" value="club_save">Speichern</button>
+            <button class="btn danger" name="action" value="club_delete" formnovalidate onclick='return confirm({{ (c.name ~ " mit allen Mannschaften und Schützen löschen? Bestehende Wettkämpfe bleiben erhalten.")|tojson }})'>Verein löschen</button>
+          </div>
+        </form>
+      </details>
+    </div>
   </details>
+  {% else %}
+  <p class="muted">{{ 'Nichts gefunden.' if search else 'Noch keine Gegner eingetragen.' }}</p>
   {% endfor %}
 </div>
-{% else %}
-<p class="muted">Noch keine Gegner eingetragen.</p>
-{% endif %}
+<script>
+  // Nach dem Speichern den zuletzt bearbeiteten Verein wieder aufklappen
+  (function () { var el = location.hash && document.querySelector(location.hash); if (el && el.tagName === 'DETAILS') { el.open = true; el.scrollIntoView(); } })();
+</script>
 {% endblock %}

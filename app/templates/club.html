@@ -8,6 +8,10 @@
   {% for k, label in FIELDS.items() %}
   <label>{{ label }}<input name="{{ k }}" value="{{ values[k] }}" {{ 'required' if k == 'club_name' }}></label>
   {% endfor %}
+  <div class="field-label" style="margin-top:6px">Schießstand <span class="muted small">(für den Standplan bei Wettkämpfen)</span></div>
+  <div class="row2">
+    {% for k, (label, _d) in RANGE.items() %}<label>{{ label }}<input type="number" min="1" name="{{ k }}" value="{{ ranges[k] }}" inputmode="numeric"></label>{% endfor %}
+  </div>
   <button class="btn primary">Speichern</button>
 </form>
 

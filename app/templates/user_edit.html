@@ -28,9 +28,21 @@
   </div>
   {% else %}<p class="muted small" style="margin:0">Noch keine <a href="{{ url_for('groups') }}">Trainingsgruppen</a> angelegt.</p>{% endif %}
   <label>{{ 'Neues Passwort setzen' if user and user.id else 'Startpasswort' }} <span class="muted small">(mind. 8 Zeichen{{ ', leer lassen = unverändert' if user and user.id }})</span>
-    <input name="password" type="text" autocomplete="off" {{ 'required minlength=8' if not (user and user.id) }}></label>
+    <span class="pw-row"><input name="password" id="pw" type="text" autocomplete="off" {{ 'required minlength=8' if not (user and user.id) }}>
+    <button type="button" class="btn small-btn" id="pw-gen">Vorschlag</button></span></label>
+  {% if member_of %}
+  <p class="small" style="margin:0"><span class="muted">Mannschaften:</span> {% for t in member_of %}<a href="{{ url_for('team', tid=t.id) }}">{{ t.name }}</a>{% if t.is_leader %} (MF){% elif t.reserve %} (Ersatz){% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>
+  {% endif %}
   <button class="btn primary">Speichern</button>
 </form>
+<script>
+  // Gut lesbares Zufallspasswort vorschlagen (ohne verwechselbare Zeichen wie 0/O, 1/l)
+  document.getElementById('pw-gen').addEventListener('click', function () {
+    var abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789', a = new Uint32Array(10), out = '';
+    crypto.getRandomValues(a); a.forEach(function (n) { out += abc[n % abc.length]; });
+    var f = document.getElementById('pw'); f.value = out; f.select();
+  });
+</script>
 
 {% if user and user.id and not self_edit %}
 <section class="narrow" id="zugang">

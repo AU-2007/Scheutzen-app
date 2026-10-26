@@ -227,6 +227,40 @@ CREATE TABLE IF NOT EXISTS training_cancel (
   reason TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (slot_id, date)
 );
+-- Gegner: Verein -> Mannschaften -> Schützen
+CREATE TABLE IF NOT EXISTS opp_clubs (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  location TEXT NOT NULL DEFAULT '',
+  club_nr TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS opp_teams (
+  id INTEGER PRIMARY KEY,
+  club_id INTEGER NOT NULL REFERENCES opp_clubs(id) ON DELETE CASCADE,
+  name TEXT NOT NULL DEFAULT '',
+  discipline TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS opp_shooters (
+  id INTEGER PRIMARY KEY,
+  club_id INTEGER NOT NULL REFERENCES opp_clubs(id) ON DELETE CASCADE,
+  team_id INTEGER REFERENCES opp_teams(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  pass_nr TEXT NOT NULL DEFAULT '',
+  player_id TEXT NOT NULL DEFAULT ''
+);
+-- Gegnerschützen eines Wettkampfs (mit Ringen und Stand)
+CREATE TABLE IF NOT EXISTS match_opp (
+  id INTEGER PRIMARY KEY,
+  match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  shooter_id INTEGER REFERENCES opp_shooters(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  pass_nr TEXT NOT NULL DEFAULT '',
+  player_id TEXT NOT NULL DEFAULT '',
+  rings REAL,
+  lane INTEGER,
+  relay INTEGER,
+  pos INTEGER NOT NULL DEFAULT 0
+);
 """
 WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 TRAINING_WEEKS = 4      # so weit im Voraus werden Trainings angezeigt
@@ -258,6 +292,12 @@ MIGRATIONS = [
     ("users", "pw_ver", "INTEGER NOT NULL DEFAULT 0"),     # erhöht bei Passwortwechsel -> alte Sitzungen ungültig
     ("users", "lock_reason", "TEXT NOT NULL DEFAULT ''"),  # Grund der Sperre (nur für Admin sichtbar)
     ("users", "locked_at", "TEXT"),
+    ("matches", "opp_team_id", "INTEGER"),                # Gegnermannschaft aus der Gegnerliste
+    ("matches", "area", "TEXT NOT NULL DEFAULT ''"),       # LG | KK | '' = aus Disziplin der Mannschaft
+    ("matches", "lanes", "INTEGER"),                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
+    ("lineup", "lane", "INTEGER"),                         # Stand
+    ("lineup", "relay", "INTEGER"),                        # Durchgang
+    ("lineup", "pos", "INTEGER NOT NULL DEFAULT 0"),       # Reihenfolge / Paarung
 ]
 RIDE_MODES = {"fahrer": "Ich fahre", "mitfahrer": "Brauche Mitfahrt", "selbst": "Eigene Anreise"}
 
@@ -312,7 +352,24 @@ def init_db():
         print(f"[init] Admin-Benutzer '{user}' angelegt – bitte nach dem ersten Login Passwort ändern.", flush=True)
         if generated:
             print(f"[init] Kein sicheres ADMIN_PASSWORD gesetzt. Erzeugtes Startpasswort: {pw}", flush=True)
+    migrate_opponents(conn)
     conn.close()
+
+
+def migrate_opponents(conn):
+    """Alte flache Gegnerliste (Verein + Mannschaft) einmalig in Verein -> Mannschaften übernehmen."""
+    if conn.execute("SELECT COUNT(*) FROM opp_clubs").fetchone()[0]:
+        return
+    old = conn.execute("SELECT club, team, location FROM opponents ORDER BY club, team").fetchall()
+    clubs = {}
+    for club_, team_, loc in old:
+        key = club_.strip().lower()
+        if key not in clubs:
+            clubs[key] = conn.execute("INSERT INTO opp_clubs (name, location) VALUES (?,?)", (club_.strip(), loc)).lastrowid
+        elif loc:
+            conn.execute("UPDATE opp_clubs SET location=? WHERE id=? AND location=''", (loc, clubs[key]))
+        conn.execute("INSERT INTO opp_teams (club_id, name) VALUES (?,?)", (clubs[key], team_.strip()))
+    conn.commit()
 
 
 # ---------------------------------------------------------------- Hilfen
@@ -466,6 +523,63 @@ def match_outcome(m, total):
     if total < m["opponent_score"]:
         return "niederlage"
     return "unentschieden"
+
+
+def has_opp_rings(mid):
+    return bool(q("SELECT 1 FROM match_opp WHERE match_id=? AND rings IS NOT NULL", (mid,), one=True))
+
+
+def sync_opp_score(conn, mid):
+    """Ringe Gegner = Summe der Gegnerschützen, sobald dort Ringe stehen."""
+    r = conn.execute("SELECT SUM(rings), COUNT(rings) FROM match_opp WHERE match_id=?", (mid,)).fetchone()
+    if r[1]:
+        conn.execute("UPDATE matches SET opponent_score=? WHERE id=?", (r[0], mid))
+
+
+RANGE_FIELDS = {"lanes_lg": ("Stände Luftgewehr / Luftpistole", 6),
+                "lanes_kk": ("Stände Kleinkaliber", 4),
+                "relay_minutes": ("Minuten pro Durchgang (für die Startzeiten)", 75)}
+
+
+def range_setting(key):
+    try:
+        return max(1, int(setting(key) or RANGE_FIELDS[key][1]))
+    except ValueError:
+        return RANGE_FIELDS[key][1]
+
+
+def match_area(m, t):
+    if m["area"] in ("LG", "KK"):
+        return m["area"]
+    disc = (t["discipline"] or "").lower()
+    return "KK" if ("kk" in disc or "klein" in disc or "groß" in disc or "gross" in disc) else "LG"
+
+
+def match_lanes(m, area):
+    return m["lanes"] or range_setting("lanes_kk" if area == "KK" else "lanes_lg")
+
+
+def split_name(name):
+    parts = (name or "").strip().rsplit(" ", 1)
+    return (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
+
+
+def starters(m, t):
+    """Alle Schützen eines Wettkampfs (eigene + Gegner) mit Stand und Durchgang."""
+    club = setting("club_name") or VEREIN_NAME
+    own_side, opp_side = ("Heim", "Gast") if m["home"] else ("Gast", "Heim")
+    own = [dict(key=f"u{r['user_id']}", side=own_side, own=True, name=r["name"], lane=r["lane"], relay=r["relay"],
+                pos=r["pos"], rings=r["rings"], pass_nr=r["pass_nr"], player_id=r["player_id"],
+                club=r["club"] or club, team=t["name"])
+           for r in q("""SELECT l.*, u.name, u.pass_nr, u.player_id, u.club FROM lineup l JOIN users u ON u.id=l.user_id
+                         WHERE l.match_id=? ORDER BY l.pos, u.name""", (m["id"],))]
+    ot = q("""SELECT ot.name team, c.name club FROM opp_teams ot JOIN opp_clubs c ON c.id=ot.club_id WHERE ot.id=?""",
+           (m["opp_team_id"],), one=True) if m["opp_team_id"] else None
+    opp = [dict(key=f"o{r['id']}", side=opp_side, own=False, name=r["name"], lane=r["lane"], relay=r["relay"],
+                pos=r["pos"], rings=r["rings"], pass_nr=r["pass_nr"], player_id=r["player_id"],
+                club=ot["club"] if ot else m["opponent"], team=opp_label(ot["club"], ot["team"]) if ot else m["opponent"])
+           for r in q("SELECT * FROM match_opp WHERE match_id=? ORDER BY pos, id", (m["id"],))]
+    return own, opp
 
 
 MY_TEAMS_SQL = """SELECT team_id FROM team_members WHERE user_id=:u
@@ -1109,8 +1223,11 @@ def schedule():
 @admin_required
 def users():
     rows = q("""SELECT u.*, (SELECT GROUP_CONCAT(t.name, ', ') FROM team_members tm
-                JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=u.id) teams
-                FROM users u ORDER BY u.name""")
+                JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=u.id) teams,
+                (SELECT GROUP_CONCAT(tm.team_id) FROM team_members tm WHERE tm.user_id=u.id) team_ids,
+                (SELECT GROUP_CONCAT(g.name, ', ') FROM user_groups ug JOIN groups g ON g.id=ug.group_id WHERE ug.user_id=u.id) group_names,
+                (SELECT GROUP_CONCAT(ug.group_id) FROM user_groups ug WHERE ug.user_id=u.id) group_ids
+                FROM users u ORDER BY u.name COLLATE NOCASE""")
     temp = temp_locked_names()
     rows = [dict(r, temp_locked=r["username"].lower() in temp) for r in rows]
     show = request.args.get("zeige", "aktiv")
@@ -1120,7 +1237,20 @@ def users():
     else:
         show = "aktiv"
         rows = [r for r in rows if r["active"]]
-    return render_template("users.html", users=rows, show=show, counts=counts)
+    flt = {"q": request.args.get("q", "").strip(), "rolle": request.args.get("rolle", ""),
+           "team": request.args.get("team", type=int), "gruppe": request.args.get("gruppe", type=int)}
+    if flt["q"]:
+        needle = flt["q"].lower()
+        rows = [r for r in rows if needle in " ".join(str(r[k] or "") for k in ("name", "username", "player_id", "pass_nr", "club")).lower()]
+    if flt["rolle"] in ROLES:
+        rows = [r for r in rows if r["role"] == flt["rolle"]]
+    if flt["team"]:
+        rows = [r for r in rows if str(flt["team"]) in (r["team_ids"] or "").split(",")]
+    if flt["gruppe"]:
+        rows = [r for r in rows if str(flt["gruppe"]) in (r["group_ids"] or "").split(",")]
+    filtered = bool(flt["q"] or flt["rolle"] in ROLES or flt["team"] or flt["gruppe"])
+    return render_template("users.html", users=rows, show=show, counts=counts, flt=flt, filtered=filtered,
+                           teams=q("SELECT id, name FROM teams ORDER BY name"), groups=q("SELECT id, name FROM groups ORDER BY name"))
 
 
 def temp_locked_names():
@@ -1210,7 +1340,11 @@ def user_edit(uid=None):
             (SELECT COUNT(*) FROM team_members WHERE user_id=:u) teams,
             (SELECT COUNT(*) FROM teams WHERE leader_id=:u) led,
             (SELECT COUNT(*) FROM training_rsvp WHERE user_id=:u) trainings""", {"u": uid}, one=True)
-    return render_template("user_edit.html", user=user, all_groups=q("SELECT * FROM groups ORDER BY name"),
+    member_of = q("""SELECT t.id, t.name, tm.reserve, t.leader_id = ? is_leader FROM team_members tm JOIN teams t ON t.id=tm.team_id
+                     WHERE tm.user_id=? UNION
+                     SELECT t.id, t.name, 0, 1 FROM teams t WHERE t.leader_id=? AND t.id NOT IN
+                     (SELECT team_id FROM team_members WHERE user_id=?) ORDER BY 2""", (uid, uid, uid, uid)) if uid else []
+    return render_template("user_edit.html", user=user, all_groups=q("SELECT * FROM groups ORDER BY name"), member_of=member_of,
                            my_groups=user_group_ids(uid) if uid else set(), impact=impact,
                            temp_locked=bool(user and user["username"] and user["username"].lower() in temp_locked_names()))
 
@@ -1573,21 +1707,31 @@ def match_edit(tid=None, mid=None):
         d = parse_date(request.form.get("date"))
         home = 1 if request.form.get("home") == "1" else 0
         opp = parse_num(request.form.get("opponent_score"))
+        ot = q("""SELECT ot.*, c.name club_name, c.location club_loc FROM opp_teams ot JOIN opp_clubs c ON c.id=ot.club_id
+                  WHERE ot.id=?""", (request.form.get("opp_team_id", type=int),), one=True)
+        if ot:   # Gegner aus der Liste: Name und (auswärts) Ort übernehmen
+            f["opponent"] = opp_label(ot["club_name"], ot["name"])
+            if not home and not f["location"]:
+                f["location"] = ot["club_loc"]
+        opp_team_id = ot["id"] if ot else None
         if not d or not f["opponent"]:
             flash("Datum und Gegner sind Pflicht.", "error")
         else:
             if m:
+                if has_opp_rings(mid):   # Summe kommt aus den Gegnerschützen
+                    opp = m["opponent_score"]
                 ex("""UPDATE matches SET date=?, time=?, opponent=?, home=?, location=?, opponent_score=?,
-                      notes=?, meet=? WHERE id=?""",
-                   (d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], mid))
+                      notes=?, meet=?, opp_team_id=? WHERE id=?""",
+                   (d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id, mid))
             else:
-                mid = ex("""INSERT INTO matches (team_id, date, time, opponent, home, location, opponent_score, notes, meet)
-                            VALUES (?,?,?,?,?,?,?,?,?)""",
-                         (t["id"], d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"]))
+                mid = ex("""INSERT INTO matches (team_id, date, time, opponent, home, location, opponent_score, notes, meet, opp_team_id)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                         (t["id"], d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id))
             flash("Wettkampf gespeichert.", "ok")
             return redirect(url_for("match", mid=mid))
-        m = dict(m or {}, **f, date=request.form.get("date"), home=home, opponent_score=opp)
-    return render_template("match_edit.html", m=m, t=t, opponents=opponent_choices())
+        m = dict(m or {}, **f, date=request.form.get("date"), home=home, opponent_score=opp, opp_team_id=opp_team_id)
+    return render_template("match_edit.html", m=m, t=t, opponents=opponent_choices(),
+                           opp_rings=bool(mid and has_opp_rings(mid)))
 
 
 # ---------------------------------------------------------------- Verlegung
@@ -1723,7 +1867,22 @@ def match(mid):
     moves = q("""SELECT mv.*, u.name by_name FROM match_moves mv LEFT JOIN users u ON u.id=mv.created_by
                  WHERE mv.match_id=? ORDER BY mv.id DESC""", (mid,))
     open_move = next((mv for mv in moves if mv["status"] == "offen"), None)
+    opp_rows = q("SELECT * FROM match_opp WHERE match_id=? ORDER BY pos, id", (mid,))
+    opp_team = q("""SELECT ot.*, c.name club_name, c.id club_id FROM opp_teams ot JOIN opp_clubs c ON c.id=ot.club_id
+                    WHERE ot.id=?""", (m["opp_team_id"],), one=True) if m["opp_team_id"] else None
+    taken = {r["shooter_id"] for r in opp_rows}
+    opp_pool = [x for x in q("""SELECT os.*, ot.name team_name FROM opp_shooters os LEFT JOIN opp_teams ot ON ot.id=os.team_id
+                                WHERE os.club_id=? ORDER BY (os.team_id=?) DESC, os.name""",
+                             (opp_team["club_id"], opp_team["id"])) if x["id"] not in taken] if opp_team else []
+    area = match_area(m, t)
+    placed = sum(1 for r in q("SELECT 1 FROM lineup WHERE match_id=? AND lane IS NOT NULL AND relay IS NOT NULL", (mid,))) + \
+        sum(1 for r in opp_rows if r["lane"] and r["relay"])
+    plan = {"area": area, "lanes": match_lanes(m, area), "placed": placed,
+            "count": sum(1 for r in rows if r["in_lineup"]) + len(opp_rows)}
     return render_template("match.html", m=m, t=t, rows=rows, total=total, moves=moves, open_move=open_move,
+                           opp_rows=opp_rows, opp_team=opp_team, opp_pool=opp_pool, plan=plan,
+                           opp_sum=sum(r["rings"] for r in opp_rows if r["rings"] is not None),
+                           opp_has_rings=any(r["rings"] is not None for r in opp_rows),
                            move_text=move_request_text(m, t, open_move) if open_move else "",
                            outcome=match_outcome(m, total), manage=can_manage(t),
                            member=participant, my_status=my["status"] if my else None,
@@ -1789,13 +1948,21 @@ def match_lineup(mid):
     allowed = {r["user_id"] for r in q("SELECT user_id FROM team_members WHERE team_id=?", (t["id"],))}
     allowed |= {r["user_id"] for r in q("SELECT user_id FROM lineup WHERE match_id=?", (mid,))}
     chosen = {int(x) for x in request.form.getlist("lineup") if x.isdigit()} & allowed
+    keep = {r["user_id"]: r for r in q("SELECT user_id, lane, relay, pos FROM lineup WHERE match_id=?", (mid,))}
     conn = db()
     conn.execute("DELETE FROM lineup WHERE match_id=?", (mid,))
     for uid in chosen:
-        conn.execute("INSERT INTO lineup (match_id, user_id, rings) VALUES (?,?,?)",
-                     (mid, uid, parse_num(request.form.get(f"rings_{uid}"))))
-    conn.execute("UPDATE matches SET opponent_score=? WHERE id=?",
-                 (parse_num(request.form.get("opponent_score")), mid))
+        k = keep.get(uid)
+        conn.execute("INSERT INTO lineup (match_id, user_id, rings, lane, relay, pos) VALUES (?,?,?,?,?,?)",
+                     (mid, uid, parse_num(request.form.get(f"rings_{uid}")),
+                      k["lane"] if k else None, k["relay"] if k else None, k["pos"] if k else 99))
+    for r in q("SELECT id FROM match_opp WHERE match_id=?", (mid,)):
+        if f"opp_rings_{r['id']}" in request.form:
+            conn.execute("UPDATE match_opp SET rings=? WHERE id=?", (parse_num(request.form.get(f"opp_rings_{r['id']}")), r["id"]))
+    if "opponent_score" in request.form:
+        conn.execute("UPDATE matches SET opponent_score=? WHERE id=?",
+                     (parse_num(request.form.get("opponent_score")), mid))
+    sync_opp_score(conn, mid)
     conn.commit()
     flash("Aufstellung und Ergebnisse gespeichert.", "ok")
     return redirect(url_for("match", mid=mid))
@@ -1813,6 +1980,187 @@ def match_add_helper(mid):
         ex("INSERT OR IGNORE INTO lineup (match_id, user_id) VALUES (?,?)", (mid, uid))
         flash("Ersatzschütze aufgestellt.", "ok")
     return redirect(url_for("match", mid=mid))
+
+
+# ---------------------------------------------------------------- Gegnerschützen eines Wettkampfs
+@app.route("/wettkampf/<int:mid>/gegnerschuetzen", methods=["POST"])
+@login_required
+def match_opp_edit(mid):
+    m = get_match(mid)
+    if not can_manage(get_team(m["team_id"])):
+        abort(403)
+    act = "remove" if request.form.get("remove_id") else request.form.get("action")
+    conn = db()
+    nxt = (conn.execute("SELECT COALESCE(MAX(pos), 0) + 1 FROM match_opp WHERE match_id=?", (mid,)).fetchone()[0])
+    if act == "add":
+        sid = request.form.get("shooter_id", type=int)
+        name = request.form.get("name", "").strip()
+        if sid:
+            sh = conn.execute("SELECT * FROM opp_shooters WHERE id=?", (sid,)).fetchone()
+            if sh and not conn.execute("SELECT 1 FROM match_opp WHERE match_id=? AND shooter_id=?", (mid, sid)).fetchone():
+                conn.execute("""INSERT INTO match_opp (match_id, shooter_id, name, pass_nr, player_id, pos)
+                                VALUES (?,?,?,?,?,?)""", (mid, sid, sh["name"], sh["pass_nr"], sh["player_id"], nxt))
+                flash(f"{sh['name']} hinzugefügt.", "ok")
+        elif name:
+            pass_nr = request.form.get("pass_nr", "").strip()
+            sid = None
+            ot = conn.execute("SELECT club_id FROM opp_teams WHERE id=?", (m["opp_team_id"],)).fetchone() if m["opp_team_id"] else None
+            if ot and request.form.get("save") == "1":   # gleich in die Stammliste des Gegnervereins
+                sid = conn.execute("INSERT INTO opp_shooters (club_id, team_id, name, pass_nr) VALUES (?,?,?,?)",
+                                   (ot[0], m["opp_team_id"], name, pass_nr)).lastrowid
+            conn.execute("INSERT INTO match_opp (match_id, shooter_id, name, pass_nr, pos) VALUES (?,?,?,?,?)",
+                         (mid, sid, name, pass_nr, nxt))
+            flash(f"{name} hinzugefügt.", "ok")
+    elif act == "team":   # alle Stammschützen der Gegnermannschaft übernehmen
+        if m["opp_team_id"]:
+            n = 0
+            for sh in conn.execute("SELECT * FROM opp_shooters WHERE team_id=? ORDER BY name", (m["opp_team_id"],)).fetchall():
+                if not conn.execute("SELECT 1 FROM match_opp WHERE match_id=? AND shooter_id=?", (mid, sh["id"])).fetchone():
+                    conn.execute("""INSERT INTO match_opp (match_id, shooter_id, name, pass_nr, player_id, pos)
+                                    VALUES (?,?,?,?,?,?)""", (mid, sh["id"], sh["name"], sh["pass_nr"], sh["player_id"], nxt + n))
+                    n += 1
+            flash(f"{n} Schützen übernommen." if n else "Keine weiteren Stammschützen in dieser Mannschaft.", "ok" if n else "info")
+    elif act == "remove":
+        conn.execute("DELETE FROM match_opp WHERE id=? AND match_id=?", (request.form.get("remove_id", type=int), mid))
+        sync_opp_score(conn, mid)
+        flash("Gegnerschütze entfernt.", "ok")
+    conn.commit()
+    return redirect(url_for("match", mid=mid) + "#gegner")
+
+
+# ---------------------------------------------------------------- Standplan (LG/KK, Stände, Durchgänge)
+def auto_assign(m, t, lanes, mode):
+    own, opp = starters(m, t)
+    if mode == "heim_zuerst":
+        home, guest = (own, opp) if m["home"] else (opp, own)
+        order = home + guest
+    else:   # abwechselnd: Paarungen 1 gegen 1 stehen nebeneinander im selben Durchgang
+        order = []
+        for i in range(max(len(own), len(opp))):
+            order += [x for x in (own[i] if i < len(own) else None, opp[i] if i < len(opp) else None) if x]
+    conn = db()
+    for i, s_ in enumerate(order):
+        relay, lane = i // lanes + 1, i % lanes + 1
+        if s_["own"]:
+            conn.execute("UPDATE lineup SET relay=?, lane=?, pos=? WHERE match_id=? AND user_id=?",
+                         (relay, lane, i, m["id"], int(s_["key"][1:])))
+        else:
+            conn.execute("UPDATE match_opp SET relay=?, lane=?, pos=? WHERE id=? AND match_id=?",
+                         (relay, lane, i, int(s_["key"][1:]), m["id"]))
+    conn.commit()
+    return len(order)
+
+
+@app.route("/wettkampf/<int:mid>/standplan", methods=["GET", "POST"])
+@login_required
+def standplan(mid):
+    m = get_match(mid)
+    t = get_team(m["team_id"])
+    manage = can_manage(t)
+    if request.method == "POST":
+        if not manage:
+            abort(403)
+        act = request.form.get("action")
+        if act == "settings":
+            area = request.form.get("area") if request.form.get("area") in ("LG", "KK") else ""
+            lanes = request.form.get("lanes", type=int)
+            lanes = min(max(lanes, 1), 60) if lanes else None
+            ex("UPDATE matches SET area=?, lanes=? WHERE id=?", (area, lanes, mid))
+            m = get_match(mid)
+            n = auto_assign(m, t, match_lanes(m, match_area(m, t)), request.form.get("mode", "abwechselnd"))
+            flash(f"{n} Schützen automatisch auf Stände verteilt." if n else "Noch keine Schützen aufgestellt.", "ok" if n else "info")
+        elif act == "save":
+            own, opp = starters(m, t)
+            lanes = match_lanes(m, match_area(m, t))
+            seen, conn, clash = {}, db(), []
+            for s_ in own + opp:
+                relay = request.form.get(f"relay_{s_['key']}", type=int)
+                lane = request.form.get(f"lane_{s_['key']}", type=int)
+                relay = relay if relay and 1 <= relay <= 20 else None
+                lane = lane if lane and 1 <= lane <= lanes else None
+                if relay and lane:
+                    if (relay, lane) in seen:
+                        clash.append(f"Durchgang {relay}, Stand {lane}: {seen[(relay, lane)]} und {s_['name']}")
+                    seen[(relay, lane)] = s_["name"]
+                if s_["own"]:
+                    conn.execute("UPDATE lineup SET relay=?, lane=? WHERE match_id=? AND user_id=?",
+                                 (relay, lane, mid, int(s_["key"][1:])))
+                else:
+                    conn.execute("UPDATE match_opp SET relay=?, lane=? WHERE id=? AND match_id=?",
+                                 (relay, lane, int(s_["key"][1:]), mid))
+            conn.commit()
+            if clash:
+                flash("Gespeichert, aber doppelt belegt: " + "; ".join(clash), "error")
+            else:
+                flash("Standplan gespeichert.", "ok")
+        return redirect(url_for("standplan", mid=mid))
+    area = match_area(m, t)
+    lanes = match_lanes(m, area)
+    own, opp = starters(m, t)
+    everyone = own + opp
+    relays = max([s_["relay"] or 0 for s_ in everyone] + [1])
+    grid = [{"relay": r, "start": relay_start(m, r),
+             "lanes": [next((s_ for s_ in everyone if s_["relay"] == r and s_["lane"] == ln), None) for ln in range(1, lanes + 1)]}
+            for r in range(1, relays + 1)]
+    unplaced = [s_ for s_ in everyone if not (s_["relay"] and s_["lane"])]
+    need = -(-len(everyone) // lanes) if everyone else 1
+    return render_template("standplan.html", m=m, t=t, manage=manage, area=area, lanes=lanes, own=own, opp=opp,
+                           grid=grid, unplaced=unplaced, relay_choices=range(1, max(relays, need) + 2),
+                           need=need, default_lanes=range_setting("lanes_kk" if area == "KK" else "lanes_lg"))
+
+
+def relay_start(m, relay):
+    """Startzeit eines Durchgangs: Wettkampfbeginn + (Durchgang-1) x Minuten pro Durchgang."""
+    if not m["time"]:
+        return ""
+    try:
+        h, mi = (int(x) for x in m["time"].split(":")[:2])
+    except ValueError:
+        return ""
+    total = h * 60 + mi + (relay - 1) * range_setting("relay_minutes")
+    return f"{total // 60 % 24:02d}:{total % 60:02d}"
+
+
+# ---------------------------------------------------------------- DISAG-Export
+DISAG_COLUMNS = ["Durchgang", "Startzeit", "Stand", "Nachname", "Vorname", "Pass-Nr", "Spieler-ID",
+                 "Verein", "Mannschaft", "Heim/Gast", "Disziplin", "Datum", "Wettkampf"]
+
+
+@app.route("/wettkampf/<int:mid>/disag.csv")
+@login_required
+def disag_export(mid):
+    """Startliste für die DISAG-Anlage: ein Schütze pro Zeile, sortiert nach Durchgang und Stand.
+    Format: Semikolon, Windows-Zeichensatz (cp1252) wie die DISAG-Software. Spalten siehe DISAG_COLUMNS."""
+    import csv
+    import io
+    m = get_match(mid)
+    t = get_team(m["team_id"])
+    if not can_manage(t):
+        abort(403)
+    own, opp = starters(m, t)
+    rows = sorted(own + opp, key=lambda s_: (s_["relay"] or 99, s_["lane"] or 99, s_["pos"]))
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
+    w.writerow(DISAG_COLUMNS)
+    title = f"{t['name']} - {m['opponent']}"
+    for s_ in rows:
+        first, last = split_name(s_["name"])
+        w.writerow([s_["relay"] or "", relay_start(m, s_["relay"] or 1) if s_["relay"] else "", s_["lane"] or "",
+                    last, first, s_["pass_nr"] or "", s_["player_id"] or "", s_["club"] or "", s_["team"] or "",
+                    s_["side"], t["discipline"] or "", fmt_date_plain(m["date"]), title])
+    data = buf.getvalue().encode("cp1252", errors="replace")
+    name = f"DISAG_{m['date']}_{t['name']}".replace(" ", "_")
+    import re as _re
+    name = _re.sub(r"[^A-Za-z0-9_.-]", "", name) + ".csv"
+    return app.response_class(data, mimetype="text/csv; charset=windows-1252",
+                              headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+def fmt_date_plain(iso):
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d.%m.%Y")
+    except (ValueError, TypeError):
+        return iso or ""
 
 
 # ---------------------------------------------------------------- RWK-Onlinemelder
@@ -1902,8 +2250,9 @@ def rwk_import(tid):
                 conn.execute("UPDATE matches SET date=?, time=?, opponent=?, home=?, location=? WHERE id=?", vals + (old["id"],))
                 updated += 1
             else:
-                conn.execute("""INSERT INTO matches (team_id, date, time, opponent, home, location, ext_uid)
-                                VALUES (?,?,?,?,?,?,?)""", (tid,) + vals + (uid,))
+                ot = opp_team_by_label(vals[2])
+                conn.execute("""INSERT INTO matches (team_id, date, time, opponent, home, location, ext_uid, opp_team_id)
+                                VALUES (?,?,?,?,?,?,?,?)""", (tid,) + vals + (uid, ot["id"] if ot else None))
                 created += 1
         if request.form.get("rwk_name") is not None:
             conn.execute("UPDATE teams SET rwk_name=? WHERE id=?", (request.form.get("rwk_name", "").strip(), tid))
@@ -1953,19 +2302,45 @@ def club():
         for k in CLUB_FIELDS:
             conn.execute("""INSERT INTO settings (key, value) VALUES (?,?)
                             ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (k, request.form.get(k, "").strip()))
+        for k, (_label, default) in RANGE_FIELDS.items():
+            n = request.form.get(k, type=int)
+            conn.execute("""INSERT INTO settings (key, value) VALUES (?,?)
+                            ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (k, str(min(max(n, 1), 600) if n else default)))
         conn.commit()
         flash("Vereinsdaten gespeichert.", "ok")
         return redirect(url_for("club"))
     values = {k: setting(k) for k in CLUB_FIELDS}
     values["club_name"] = values["club_name"] or VEREIN_NAME
     counts = q("""SELECT (SELECT COUNT(*) FROM users WHERE active=1) users, (SELECT COUNT(*) FROM teams) teams,
-                  (SELECT COUNT(*) FROM opponents) opps""", one=True)
-    return render_template("club.html", values=values, FIELDS=CLUB_FIELDS, counts=counts)
+                  (SELECT COUNT(*) FROM opp_clubs) opps""", one=True)
+    ranges = {k: range_setting(k) for k in RANGE_FIELDS}
+    return render_template("club.html", values=values, FIELDS=CLUB_FIELDS, counts=counts, RANGE=RANGE_FIELDS, ranges=ranges)
 
 
-# ---------------------------------------------------------------- Gegner
+# ---------------------------------------------------------------- Gegner (Verein -> Mannschaften -> Schützen)
 def can_edit_opponents():
     return current_user()["role"] in ("admin", "leader")
+
+
+def opp_label(club_name, team_name):
+    return (club_name + (" " + team_name if team_name else "")).strip()
+
+
+def find_or_create_opp_club(conn, name, location=""):
+    r = conn.execute("SELECT id FROM opp_clubs WHERE lower(name)=lower(?)", (name.strip(),)).fetchone()
+    if r:
+        if location:
+            conn.execute("UPDATE opp_clubs SET location=? WHERE id=? AND location=''", (location, r[0]))
+        return r[0]
+    return conn.execute("INSERT INTO opp_clubs (name, location) VALUES (?,?)", (name.strip(), location)).lastrowid
+
+
+def find_or_create_opp_team(conn, club_id, name, discipline=""):
+    r = conn.execute("SELECT id FROM opp_teams WHERE club_id=? AND lower(name)=lower(?)", (club_id, name.strip())).fetchone()
+    if r:
+        return r[0]
+    return conn.execute("INSERT INTO opp_teams (club_id, name, discipline) VALUES (?,?,?)",
+                        (club_id, name.strip(), discipline)).lastrowid
 
 
 @app.route("/gegner", methods=["GET", "POST"])
@@ -1974,36 +2349,109 @@ def opponents():
     if not can_edit_opponents():
         abort(403)
     if request.method == "POST":
-        oid = request.form.get("id", type=int)
-        if request.form.get("delete") and oid:
-            ex("DELETE FROM opponents WHERE id=?", (oid,))
-            flash("Gegner gelöscht.", "ok")
-        else:
-            club_, team_, loc = (request.form.get(k, "").strip() for k in ("club", "team", "location"))
-            if not club_:
-                flash("Bitte den Verein angeben.", "error")
-            elif oid:
-                ex("UPDATE opponents SET club=?, team=?, location=? WHERE id=?", (club_, team_, loc, oid))
-                flash("Gegner gespeichert.", "ok")
+        act = request.form.get("action", "")
+        f = lambda k: request.form.get(k, "").strip()
+        cid = request.form.get("club_id", type=int)
+        anchor = f"#verein-{cid}" if cid else ""
+        conn = db()
+        if act == "club_save":
+            if not f("name"):
+                flash("Bitte den Vereinsnamen angeben.", "error")
+            elif cid:
+                conn.execute("UPDATE opp_clubs SET name=?, location=?, club_nr=? WHERE id=?",
+                             (f("name"), f("location"), f("club_nr"), cid))
+                flash("Verein gespeichert.", "ok")
             else:
-                ex("INSERT INTO opponents (club, team, location) VALUES (?,?,?)", (club_, team_, loc))
-                flash("Gegner angelegt.", "ok")
-        return redirect(url_for("opponents"))
-    rows = q("SELECT * FROM opponents ORDER BY club, team")
-    return render_template("opponents.html", rows=rows)
+                dupe = conn.execute("SELECT id FROM opp_clubs WHERE lower(name)=lower(?)", (f("name"),)).fetchone()
+                if dupe:
+                    flash("Diesen Verein gibt es schon.", "error")
+                    cid = dupe[0]
+                else:
+                    cid = conn.execute("INSERT INTO opp_clubs (name, location, club_nr) VALUES (?,?,?)",
+                                       (f("name"), f("location"), f("club_nr"))).lastrowid
+                    if f("team"):
+                        conn.execute("INSERT INTO opp_teams (club_id, name, discipline) VALUES (?,?,?)",
+                                     (cid, f("team"), f("discipline")))
+                    flash("Verein angelegt. Jetzt Mannschaften und Schützen ergänzen.", "ok")
+                anchor = f"#verein-{cid}"
+        elif act == "club_delete" and cid:
+            conn.execute("UPDATE matches SET opp_team_id=NULL WHERE opp_team_id IN (SELECT id FROM opp_teams WHERE club_id=?)", (cid,))
+            conn.execute("DELETE FROM opp_clubs WHERE id=?", (cid,))
+            flash("Verein gelöscht. Bestehende Wettkämpfe bleiben erhalten.", "ok")
+            anchor = ""
+        elif act == "team_add" and cid:
+            conn.execute("INSERT INTO opp_teams (club_id, name, discipline) VALUES (?,?,?)", (cid, f("name"), f("discipline")))
+            flash("Mannschaft hinzugefügt.", "ok")
+        elif act == "team_save":
+            conn.execute("UPDATE opp_teams SET name=?, discipline=? WHERE id=? AND club_id=?",
+                         (f("name"), f("discipline"), request.form.get("team_id", type=int), cid))
+            flash("Mannschaft gespeichert.", "ok")
+        elif act == "team_delete":
+            tid_ = request.form.get("team_id", type=int)
+            conn.execute("UPDATE matches SET opp_team_id=NULL WHERE opp_team_id=?", (tid_,))
+            conn.execute("DELETE FROM opp_teams WHERE id=? AND club_id=?", (tid_, cid))
+            flash("Mannschaft gelöscht.", "ok")
+        elif act == "shooter_add" and cid:
+            if f("name"):
+                team_id = request.form.get("team_id", type=int)
+                if team_id and not conn.execute("SELECT 1 FROM opp_teams WHERE id=? AND club_id=?", (team_id, cid)).fetchone():
+                    team_id = None
+                conn.execute("INSERT INTO opp_shooters (club_id, team_id, name, pass_nr, player_id) VALUES (?,?,?,?,?)",
+                             (cid, team_id, f("name"), f("pass_nr"), f("player_id")))
+                flash("Schütze hinzugefügt.", "ok")
+        elif act == "shooter_save":
+            team_id = request.form.get("team_id", type=int)
+            if team_id and not conn.execute("SELECT 1 FROM opp_teams WHERE id=? AND club_id=?", (team_id, cid)).fetchone():
+                team_id = None
+            conn.execute("UPDATE opp_shooters SET name=?, pass_nr=?, player_id=?, team_id=? WHERE id=? AND club_id=?",
+                         (f("name"), f("pass_nr"), f("player_id"), team_id, request.form.get("shooter_id", type=int), cid))
+            flash("Schütze gespeichert.", "ok")
+        elif act == "shooter_delete":
+            conn.execute("DELETE FROM opp_shooters WHERE id=? AND club_id=?", (request.form.get("shooter_id", type=int), cid))
+            flash("Schütze entfernt.", "ok")
+        conn.commit()
+        return redirect(url_for("opponents", q=request.args.get("q") or None) + anchor)
+    search = request.args.get("q", "").strip()
+    clubs = q("SELECT * FROM opp_clubs ORDER BY name COLLATE NOCASE")
+    teams = q("""SELECT ot.*, (SELECT COUNT(*) FROM matches m WHERE m.opp_team_id=ot.id) matches
+                 FROM opp_teams ot ORDER BY ot.name COLLATE NOCASE""")
+    shooters = q("SELECT * FROM opp_shooters ORDER BY name COLLATE NOCASE")
+    data = []
+    for c in clubs:
+        ct = [t for t in teams if t["club_id"] == c["id"]]
+        cs = [x for x in shooters if x["club_id"] == c["id"]]
+        if search and search.lower() not in (c["name"] + " " + c["location"] + " " +
+                                              " ".join(x["name"] for x in cs)).lower():
+            continue
+        data.append({"club": c, "teams": ct, "shooters": cs,
+                     "team_names": {t["id"]: t["name"] or "–" for t in ct}})
+    return render_template("opponents.html", data=data, search=search, total=len(clubs), disciplines=DISCIPLINES)
 
 
 def opponent_choices():
-    """Für die Auswahl beim Wettkampf: Anzeigename und Ort."""
-    return [dict(label=(o["club"] + (" " + o["team"] if o["team"] else "")), location=o["location"])
-            for o in q("SELECT * FROM opponents ORDER BY club, team")]
+    """Für die Auswahl beim Wettkampf: Vereine mit ihren Mannschaften."""
+    clubs = q("SELECT * FROM opp_clubs ORDER BY name COLLATE NOCASE")
+    teams = q("SELECT * FROM opp_teams ORDER BY name COLLATE NOCASE")
+    return [{"club": c, "teams": [dict(t, label=opp_label(c["name"], t["name"])) for t in teams if t["club_id"] == c["id"]]}
+            for c in clubs]
+
+
+def opp_team_by_label(label):
+    """Gegnermannschaft anhand eines Namens wie 'SV Tell 1' finden (für den RWK-Import)."""
+    for c in opponent_choices():
+        for t in c["teams"]:
+            if t["label"].lower() == (label or "").strip().lower():
+                return t
+    return None
 
 
 # ---------------------------------------------------------------- CSV-Import (Schützen, Gegner)
 IMPORT_FIELDS = {
     "schuetzen": {"vorname": "Vorname", "nachname": "Nachname", "name": "Name (komplett)",
                   "player_id": "Spieler-ID", "pass_nr": "Pass-Nr.", "club": "Verein", "": "– ignorieren –"},
-    "gegner": {"club": "Verein", "team": "Mannschaft", "location": "Ort / Schießstand", "": "– ignorieren –"},
+    "gegner": {"club": "Verein", "team": "Mannschaft", "location": "Ort / Schießstand",
+               "vorname": "Schütze Vorname", "nachname": "Schütze Nachname", "name": "Schütze (Name komplett)",
+               "pass_nr": "Pass-Nr.", "player_id": "Spieler-ID", "": "– ignorieren –"},
 }
 HEADER_HINTS = {
     "vorname": ("vorname", "first"), "nachname": ("nachname", "familienname", "last", "zuname"),
@@ -2083,16 +2531,23 @@ def csv_import(kind):
                 if not rec.get("club"):
                     skipped += 1
                     continue
-                old = q("SELECT id FROM opponents WHERE lower(club)=lower(?) AND lower(team)=lower(?)",
-                        (rec["club"], rec.get("team", "")), one=True)
-                if old:
-                    if rec.get("location"):
-                        conn.execute("UPDATE opponents SET location=? WHERE id=?", (rec["location"], old["id"]))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO opponents (club, team, location) VALUES (?,?,?)",
-                                 (rec["club"], rec.get("team", ""), rec.get("location", "")))
+                before = conn.total_changes
+                cid = find_or_create_opp_club(conn, rec["club"], rec.get("location", ""))
+                team_id = find_or_create_opp_team(conn, cid, rec["team"]) if rec.get("team") else None
+                sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
+                if sname:
+                    old = conn.execute("SELECT id FROM opp_shooters WHERE club_id=? AND lower(name)=lower(?)", (cid, sname)).fetchone()
+                    if old:
+                        conn.execute("""UPDATE opp_shooters SET team_id=COALESCE(?, team_id), pass_nr=COALESCE(NULLIF(?, ''), pass_nr),
+                                        player_id=COALESCE(NULLIF(?, ''), player_id) WHERE id=?""",
+                                     (team_id, rec.get("pass_nr", ""), rec.get("player_id", ""), old[0]))
+                    else:
+                        conn.execute("INSERT INTO opp_shooters (club_id, team_id, name, pass_nr, player_id) VALUES (?,?,?,?,?)",
+                                     (cid, team_id, sname, rec.get("pass_nr", ""), rec.get("player_id", "")))
+                if conn.total_changes > before:
                     created += 1
+                else:
+                    updated += 1
                 continue
             name = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
             if not name:

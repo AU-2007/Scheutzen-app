@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Standplan – {{ m.opponent }}{% endblock %}
+{% block content %}
+<p class="no-print"><a href="{{ url_for('match', mid=m.id) }}" class="back">← {{ t.name }} {{ 'vs.' if m.home else '@' }} {{ m.opponent }}</a></p>
+<div class="head-row">
+  <div>
+    <h1>Standplan</h1>
+    <div class="muted">{{ m.date|datum }}{% if m.time %} · {{ m.time }} Uhr{% endif %} · {{ t.name }} {{ 'vs.' if m.home else '@' }} {{ m.opponent }} · <b>{{ area }}</b>, {{ lanes }} Stände</div>
+  </div>
+  <div class="inline wrap no-print">
+    <button type="button" class="btn small-btn" onclick="window.print()">Drucken</button>
+    {% if manage %}<a class="btn small-btn primary" href="{{ url_for('disag_export', mid=m.id) }}">DISAG-Startliste</a>{% endif %}
+  </div>
+</div>
+
+{% if not own and not opp %}
+<div class="card">
+  <p style="margin:0">Noch niemand aufgestellt. Lege zuerst beim <a href="{{ url_for('match', mid=m.id) }}">Wettkampf</a> die Aufstellung fest und trag die Gegnerschützen ein.</p>
+</div>
+{% endif %}
+
+{# ---------- Übersicht je Durchgang ---------- #}
+{% if own or opp %}
+<div class="legend small no-print"><span class="lane-dot heim"></span> Heim <span class="lane-dot gast"></span> Gast</div>
+{% for g in grid %}
+<section class="relay">
+  <h2>{{ g.relay }}. Durchgang{% if g.start %} <span class="muted small">ab {{ g.start }} Uhr</span>{% endif %}</h2>
+  <div class="lane-grid">
+    {% for s in g.lanes %}
+    <div class="lane {{ s.side|lower if s else 'empty' }}">
+      <span class="lane-no">Stand {{ loop.index }}</span>
+      {% if s %}<b>{{ s.name }}</b><span class="small muted">{{ s.side }} · {{ s.team }}</span>{% else %}<span class="muted small">frei</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% if unplaced %}
+<div class="flash info">Noch ohne Stand: {{ unplaced|map(attribute='name')|join(', ') }}</div>
+{% endif %}
+{% endif %}
+
+{% if manage and (own or opp) %}
+{# ---------- Automatisch verteilen ---------- #}
+<section class="no-print">
+  <h2>Einteilen</h2>
+  <form method="post" class="card stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="settings">
+    <div class="opp-grid">
+      <label>Bereich
+        <select name="area">
+          <option value="LG" {{ 'selected' if area == 'LG' }}>LG – Luftdruck</option>
+          <option value="KK" {{ 'selected' if area == 'KK' }}>KK – Kleinkaliber</option>
+        </select></label>
+      <label>Stände<input type="number" name="lanes" min="1" max="60" value="{{ lanes }}" inputmode="numeric"></label>
+      <label>Reihenfolge
+        <select name="mode">
+          <option value="abwechselnd">Paarungen nebeneinander (Heim 1, Gast 1, Heim 2 …)</option>
+          <option value="heim_zuerst">Erst Heim, dann Gast</option>
+        </select></label>
+    </div>
+    <button class="btn primary">Automatisch verteilen</button>
+    <p class="muted small" style="margin:0">{{ own|length + opp|length }} Schützen auf {{ lanes }} Stände{% if need > 1 %} = <b>{{ need }} Durchgänge</b>{% endif %}. Paarungen in derselben Reihenfolge wie in der Aufstellung. Vereinsstandard: {{ default_lanes }} Stände {{ area }} (Admin → Verein).</p>
+  </form>
+</section>
+
+{# ---------- Von Hand ändern ---------- #}
+<section class="no-print">
+  <details class="card" {{ 'open' if unplaced and grid|length == 1 and not grid[0].lanes|select|list }}>
+    <summary class="strong" style="cursor:pointer">Von Hand ändern</summary>
+    <form method="post" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="save">
+      <table class="plan-edit">
+        <thead><tr><th>Schütze</th><th>Durchgang</th><th>Stand</th></tr></thead>
+        <tbody>
+        {% for s in own + opp %}
+          <tr>
+            <td><span class="lane-dot {{ s.side|lower }}"></span> {{ s.name }}</td>
+            <td><select name="relay_{{ s.key }}" aria-label="Durchgang {{ s.name }}"><option value="">–</option>{% for r in relay_choices %}<option value="{{ r }}" {{ 'selected' if s.relay == r }}>{{ r }}</option>{% endfor %}</select></td>
+            <td><select name="lane_{{ s.key }}" aria-label="Stand {{ s.name }}"><option value="">–</option>{% for ln in range(1, lanes + 1) %}<option value="{{ ln }}" {{ 'selected' if s.lane == ln }}>{{ ln }}</option>{% endfor %}</select></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <button class="btn primary" style="margin-top:10px">Speichern</button>
+    </form>
+  </details>
+</section>
+
+<section class="no-print">
+  <div class="card stack">
+    <b>Auf die DISAG-Anlage übertragen</b>
+    <p class="muted small" style="margin:0">Die Startliste enthält je Schütze Durchgang, Startzeit, Stand, Name, Pass-Nr., Spieler-ID, Verein, Mannschaft und Disziplin (CSV, Semikolon, Windows-Zeichensatz). Im OpticScore Server über den Import von Wettkampfdaten laden.</p>
+    <div><a class="btn small-btn" href="{{ url_for('disag_export', mid=m.id) }}">Startliste herunterladen (.csv)</a></div>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

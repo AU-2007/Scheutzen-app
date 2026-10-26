@@ -12,9 +12,18 @@
   <a href="{{ url_for('users') }}" class="{{ 'on' if show == 'aktiv' }}">Aktiv ({{ counts.aktiv }})</a>
   <a href="{{ url_for('users', zeige='gesperrt') }}" class="{{ 'on' if show == 'gesperrt' }}">Gesperrt ({{ counts.gesperrt }})</a>
 </div>
+<form method="get" class="user-filter" role="search">
+  {% if show == 'gesperrt' %}<input type="hidden" name="zeige" value="gesperrt">{% endif %}
+  <input type="search" name="q" value="{{ flt.q }}" placeholder="Name, Benutzername, Pass-Nr. …" aria-label="Suchen">
+  <select name="rolle" aria-label="Rolle"><option value="">Alle Rollen</option>{% for k, label in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if flt.rolle == k }}>{{ label }}</option>{% endfor %}</select>
+  <select name="team" aria-label="Mannschaft"><option value="">Alle Mannschaften</option>{% for t in teams %}<option value="{{ t.id }}" {{ 'selected' if flt.team == t.id }}>{{ t.name }}</option>{% endfor %}</select>
+  <select name="gruppe" aria-label="Trainingsgruppe"><option value="">Alle Gruppen</option>{% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if flt.gruppe == g.id }}>{{ g.name }}</option>{% endfor %}</select>
+  <button class="btn">Filtern</button>
+</form>
+{% if filtered %}<p class="small muted" style="margin:-2px 0 8px">{{ users|length }} Treffer · <a href="{{ url_for('users', zeige=show if show == 'gesperrt' else None) }}">Filter zurücksetzen</a></p>{% endif %}
 <div class="card flush">
   <table>
-    <thead><tr><th>Name</th><th>Rolle</th><th class="hide-sm">Mannschaften</th></tr></thead>
+    <thead><tr><th>Name</th><th>Rolle</th><th class="hide-sm">Mannschaften · Gruppen</th><th class="hide-sm">Zuletzt da</th></tr></thead>
     <tbody>
     {% for u in users %}
       <tr class="{{ 'inactive' if not u.active }}">
@@ -24,10 +33,11 @@
             <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="zurueck" value="liste">
             <span class="pill av-vielleicht">10 Fehlversuche</span><button class="linkbtn accent">Sperre aufheben</button></form>{% endif %}</td>
         <td><span class="pill role-{{ u.role }}">{{ ROLES[u.role] }}</span></td>
-        <td class="hide-sm muted small">{{ u.teams or '–' }}</td>
+        <td class="hide-sm muted small">{{ u.teams or '–' }}{% if u.group_names %}<br>{{ u.group_names }}{% endif %}</td>
+        <td class="hide-sm small {{ 'muted' if u.last_seen }}">{% if u.last_seen %}{{ u.last_seen|seit }}{% elif u.role != 'admin' %}<span class="pill open">nie angemeldet</span>{% else %}–{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="3" class="muted">{{ 'Niemand ist gesperrt.' if show == 'gesperrt' else 'Keine Benutzer.' }}</td></tr>
+      <tr><td colspan="4" class="muted">{{ 'Keine Treffer.' if filtered else ('Niemand ist gesperrt.' if show == 'gesperrt' else 'Keine Benutzer.') }}</td></tr>
     {% endfor %}
     </tbody>
   </table>

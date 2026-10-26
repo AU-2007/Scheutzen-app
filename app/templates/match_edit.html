@@ -10,15 +10,26 @@
     <label>Datum<input type="date" name="date" value="{{ m.date if m }}" required></label>
     <label>Uhrzeit<input type="time" name="time" value="{{ m.time if m }}"></label>
   </div>
-  <label>Gegner<input name="opponent" id="opponent" list="opp-list" value="{{ m.opponent if m }}" placeholder="z. B. SV Tell Musterdorf 1" autocomplete="off" required></label>
-  <datalist id="opp-list">{% for o in opponents %}<option value="{{ o.label }}" data-loc="{{ o.location }}">{% endfor %}</datalist>
-  {% if me.role in ('admin', 'leader') %}<p class="muted small" style="margin:-6px 0 0">Liste der Gegner: <a href="{{ url_for('opponents') }}">Gegner verwalten</a></p>{% endif %}
+  {% set known = m and m.opp_team_id %}
+  <label>Gegner
+    <select name="opp_team_id" id="opp-team">
+      <option value="">{{ 'Gegner aus der Liste wählen …' if opponents else 'Noch keine Gegner angelegt' }}</option>
+      {% for c in opponents if c.teams %}
+      <optgroup label="{{ c.club.name }}">
+        {% for ot in c.teams %}<option value="{{ ot.id }}" data-loc="{{ c.club.location }}" {{ 'selected' if known == ot.id }}>{{ ot.label }}{% if ot.discipline %} · {{ ot.discipline }}{% endif %}</option>{% endfor %}
+      </optgroup>
+      {% endfor %}
+      <option value="" data-free="1" {{ 'selected' if m and m.opponent and not known }}>Anderer Gegner (frei eingeben)</option>
+    </select>
+  </label>
+  <label id="opp-free" {{ 'hidden' if known or not (m and m.opponent) and opponents }}>Name des Gegners<input name="opponent" id="opponent" value="{{ m.opponent if m and not known }}" placeholder="z. B. SV Tell Musterdorf 1" autocomplete="off"></label>
+  {% if me.role in ('admin', 'leader') %}<p class="muted small" style="margin:-6px 0 0">Fehlt ein Gegner? <a href="{{ url_for('opponents') }}">Gegner verwalten</a> – Verein, Mannschaften und Schützen einmal anlegen, dann stehen sie hier zur Auswahl.</p>{% endif %}
   <div class="seg-group">
     <label class="radio"><input type="radio" name="home" value="1" {{ 'checked' if not m or m.home }}> Heim</label>
     <label class="radio"><input type="radio" name="home" value="0" {{ 'checked' if m and not m.home }}> Auswärts</label>
   </div>
   <label>Ort<input name="location" value="{{ m.location if m }}" placeholder="z. B. Schützenhaus"></label>
-  <label>Ringe Gegner <span class="muted small">(optional, auch später möglich)</span><input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m and m.opponent_score is not none }}"></label>
+  {% if not opp_rings %}<label>Ringe Gegner <span class="muted small">(optional, auch später möglich)</span><input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m and m.opponent_score is not none }}"></label>{% endif %}
   <label>Treffpunkt &amp; Abfahrt <span class="muted small">(nur auswärts)</span><input name="meet" value="{{ m.meet if m }}" placeholder="z. B. Schützenhaus, 17:45 Uhr"></label>
   <label>Beschreibung<textarea name="notes" rows="3" placeholder="z. B. 30 Minuten vorher zum Einschießen da sein">{{ m.notes if m }}</textarea></label>
   <button class="btn primary">Speichern</button>
@@ -30,15 +41,20 @@
 </form>
 {% endif %}
 <script>
-  // Ort eines bekannten Gegners bei Auswärtsterminen übernehmen
+  // Gegner aus der Liste oder frei eingeben; Ort bei Auswärtsterminen übernehmen
   (function () {
-    var opp = document.getElementById('opponent'), loc = document.querySelector('input[name=location]');
-    var known = {};
-    document.querySelectorAll('#opp-list option').forEach(function (o) { known[o.value] = o.dataset.loc; });
-    opp.addEventListener('change', function () {
+    var sel = document.getElementById('opp-team'), free = document.getElementById('opp-free'),
+        inp = document.getElementById('opponent'), loc = document.querySelector('input[name=location]');
+    function sync() {
+      var o = sel.options[sel.selectedIndex];
+      var isFree = !sel.value && (o.dataset.free || sel.options.length <= 2);
+      free.hidden = !isFree; inp.required = isFree;
       var away = document.querySelector('input[name=home][value="0"]').checked;
-      if (away && known[opp.value] && !loc.value) loc.value = known[opp.value];
-    });
+      if (sel.value && away && o.dataset.loc && !loc.value) loc.value = o.dataset.loc;
+    }
+    sel.addEventListener('change', sync);
+    document.querySelectorAll('input[name=home]').forEach(function (r) { r.addEventListener('change', sync); });
+    sync();
   })();
 </script>
 {% endblock %}

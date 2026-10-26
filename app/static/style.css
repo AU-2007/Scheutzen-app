@@ -481,3 +481,81 @@ table.log tr.fail td { background: var(--red-soft); }
 .disk i { display: block; height: 100%; background: var(--green-2); }
 .disk i.full { background: var(--red); }
 .admin-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+
+/* ---------- Gegnerverwaltung ---------- */
+.opp-club > summary { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; cursor: pointer; list-style: none; }
+.opp-club > summary::-webkit-details-marker { display: none; }
+.opp-body { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
+.opp-body h3 { font-size: .95rem; margin: 14px 0 6px; }
+.opp-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.opp-row.shooter { grid-template-columns: 2fr 1fr 1.3fr auto auto; }
+.opp-row.add { margin-top: 4px; }
+.opp-row.add .btn { grid-column: span 2; }
+.opp-row > span { grid-column: 1 / -1; margin-top: -4px; }
+.opp-row input, .opp-row select { min-width: 0; }
+.opp-club-edit { margin-top: 14px; }
+.opp-club-edit summary { cursor: pointer; color: var(--muted); }
+@media (max-width: 640px) {
+  .opp-row, .opp-row.shooter { grid-template-columns: 1fr 1fr; }
+  .opp-row.shooter input[name=name] { grid-column: 1 / -1; }
+  .opp-row.add .btn { grid-column: 1 / -1; }
+}
+.opp-head { font-size: 1rem; margin: 18px 0 8px; }
+.opp-add { margin-top: 12px; }
+tfoot td { border-top: 1px solid var(--line); }
+
+/* ---------- Standplan ---------- */
+.plan-teaser { display: flex; align-items: center; gap: 12px; margin-top: 16px; color: var(--ink); text-decoration: none; }
+.plan-teaser:hover { text-decoration: none; border-color: var(--green-2); }
+.plan-ico { flex: none; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: .85rem;
+  background: var(--ok-soft); color: var(--green); }
+.plan-go { margin-left: auto; font-size: 1.5rem; color: var(--muted); }
+.relay h2 { margin-bottom: 8px; }
+.lane-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.lane { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--card); display: flex; flex-direction: column; gap: 2px; min-height: 74px;
+  border-left-width: 4px; }
+.lane.heim { border-left-color: var(--green-2); }
+.lane.gast { border-left-color: var(--gold); }
+.lane.empty { border-style: dashed; border-left-width: 1px; background: transparent; }
+.lane-no { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.lane-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.lane-dot.heim { background: var(--green-2); }
+.lane-dot.gast { background: var(--gold); }
+.legend { display: flex; gap: 8px; align-items: center; margin: 4px 0 -4px; color: var(--muted); }
+.legend .lane-dot + * { margin-right: 8px; }
+.plan-edit { width: 100%; }
+.plan-edit td, .plan-edit th { padding: 6px 4px; }
+.plan-edit select { width: 100%; min-width: 60px; }
+@media print {
+  .no-print, header, nav, .site-head, .flash { display: none !important; }
+  body { background: #fff; }
+  .lane { break-inside: avoid; }
+}
+
+/* ---------- Benutzerliste ---------- */
+.user-filter { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; margin: 10px 0; }
+.user-filter input, .user-filter select { min-width: 0; }
+@media (max-width: 640px) { .user-filter { grid-template-columns: 1fr 1fr; } .user-filter input[type=search] { grid-column: 1 / -1; } }
+.pw-row { display: flex; gap: 8px; }
+.pw-row input { flex: 1; min-width: 0; }
+
+/* Nachbesserungen */
+[hidden] { display: none !important; }
+.accent-link { color: var(--green-2); margin-left: auto; }
+.opp-items { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 8px; }
+.opp-items:empty { display: none; }
+.opp-item { border-bottom: 1px solid var(--line); }
+.opp-item:last-child { border-bottom: 0; }
+.opp-item > summary { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 9px 12px; cursor: pointer; list-style: none; }
+.opp-item > summary::-webkit-details-marker { display: none; }
+.opp-item[open] > summary .accent-link { visibility: hidden; }
+.opp-item > form { padding: 0 12px 10px; margin: 0; }
+.opp-club > summary .accent-link { align-self: center; }
+.opp-add .inline-form { flex-wrap: wrap; }
+.opp-add .inline-form select { flex: 1 1 180px; min-width: 0; }
+.opp-add .btn { white-space: normal; max-width: 100%; }
+.opp-add .row2 > label { min-width: 0; }
+.opp-add input { min-width: 0; width: 100%; }
+.lane { text-align: left; align-items: flex-start; }
+.lane b { color: var(--ink); font-size: 1rem; }
+.row2 > * { min-width: 0; }

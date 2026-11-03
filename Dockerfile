@@ -7,6 +7,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
  && useradd -r -u 1000 app && mkdir /data && chown app /data
 COPY app/ ./app/
+# Zeitstempel des Neubaus (zeigt die Admin-Übersicht unter "Container gebaut")
+RUN date > /srv/app/.build
 USER app
 VOLUME /data
 EXPOSE 8000

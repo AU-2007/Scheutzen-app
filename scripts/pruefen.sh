@@ -16,7 +16,11 @@ if (cd "$APP_DIR" && git fetch -q 2>/dev/null); then
   commits="$(cd "$APP_DIR" && git log --format='%cd|%s' --date=format:'%d.%m.%Y' HEAD..@{u} 2>/dev/null | head -10 || true)"
 fi
 
-LISTING="$listing" COMMITS="$commits" python3 - "$STATUS_FILE" "$behind" <<'PY'
+# Python-Module im Container: gibt es neuere Versionen? (nur Anzeige, Update über Dependabot/GitHub)
+outdated="$(timeout 90 docker exec -e PIP_DISABLE_PIP_VERSION_CHECK=1 -e PIP_NO_CACHE_DIR=1 schuetzen-mannschaften \
+  python -m pip list --outdated --format=json 2>/dev/null || true)"
+
+OUTDATED="$outdated" LISTING="$listing" COMMITS="$commits" python3 - "$STATUS_FILE" "$behind" <<'PY'
 import json, os, sys, datetime
 path, behind = sys.argv[1], int(sys.argv[2] or 0)
 listing = os.environ.get("LISTING", "")
@@ -46,6 +50,14 @@ data.update({
     "app_behind": behind,
     "app_new": [dict(zip(("date", "msg"), c.split("|", 1))) for c in commits.splitlines() if "|" in c],
 })
+try:
+    out = json.loads(os.environ.get("OUTDATED") or "null")
+    if isinstance(out, list):
+        data["outdated"] = [{"name": str(o.get("name", ""))[:60], "version": str(o.get("version", ""))[:30],
+                             "latest": str(o.get("latest_version", ""))[:30]} for o in out[:60] if isinstance(o, dict)]
+        data["outdated_at"] = data["checked_at"]
+except ValueError:
+    pass
 tmp = path + ".tmp"
 with open(tmp, "w") as fh:
     json.dump(data, fh, indent=1, ensure_ascii=False)
@@ -57,3 +69,4 @@ except PermissionError:
 os.replace(tmp, path)
 print(f"{len(pkgs)} Paket-Updates ({sum(p['security'] for p in pkgs)} Sicherheit), App {behind} Version(en) zurück.")
 PY
+snapshot

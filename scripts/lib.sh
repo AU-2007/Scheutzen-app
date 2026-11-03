@@ -4,9 +4,20 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="$APP_DIR/data"
-BACKUP_DIR="${BACKUP_DIR:-/opt/backup}"
-KEEP_DAYS="${KEEP_DAYS:-14}"
 STATUS_FILE="$DATA_DIR/wartung.json"
+
+# Einstellung aus der .env lesen (ohne die Datei auszuführen)
+env_get() { sed -n "s/^[[:space:]]*$1=//p" "$APP_DIR/.env" 2>/dev/null | tail -1 | tr -d '\r' | sed "s/^[\"']//; s/[\"']\$//"; }
+
+# Sicherungen liegen auf einem festen Laufwerk des Servers, Standard /opt/backup.
+# Anderes Laufwerk: in der .env z. B. BACKUP_DIR=/mnt/backup (eigene Festplatte / Block-Storage)
+BACKUP_DIR="${BACKUP_DIR:-$(env_get BACKUP_DIR)}"; BACKUP_DIR="${BACKUP_DIR:-/opt/backup}"
+KEEP_DAYS="${KEEP_DAYS:-$(env_get BACKUP_KEEP_TAGE)}"; KEEP_DAYS="${KEEP_DAYS:-14}"          # tägliche Sicherungen
+KEEP_NEUBAU="${KEEP_NEUBAU:-$(env_get BACKUP_KEEP_NEUBAU)}"; KEEP_NEUBAU="${KEEP_NEUBAU:-3}"   # vor jedem Neubau
+KEEP_MANUELL="${KEEP_MANUELL:-$(env_get BACKUP_KEEP_MANUELL)}"; KEEP_MANUELL="${KEEP_MANUELL:-5}"
+
+# Status-Momentaufnahme für die Wartungsseite der App (Versionen, Sicherungen, Zeitpläne)
+snapshot() { BACKUP_DIR="$BACKUP_DIR" KEEP_NEUBAU="$KEEP_NEUBAU" KEEP_MANUELL="$KEEP_MANUELL" KEEP_DAYS="$KEEP_DAYS" python3 "$APP_DIR/scripts/snapshot.py" "$@" >/dev/null 2>&1 || true; }
 
 info() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }

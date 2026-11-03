@@ -577,3 +577,14 @@ th.sel, td.sel { width: 36px; padding-right: 0; }
 .upd-list summary { cursor: pointer; color: var(--green-2); }
 .upd-list ul { margin: 8px 0; padding-left: 18px; }
 .upd-list table { margin-top: 8px; }
+
+/* Wartungsseite */
+.job-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.job-action:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.job-action .btn { flex: none; }
+.job-log { max-height: 420px; overflow: auto; font-size: .78rem; }
+.pill.job-queued { background: var(--blue-soft); color: var(--blue); }
+.pill.job-running { background: var(--gold-soft); color: var(--gold); }
+.pill.job-done { background: var(--ok-soft); color: var(--green-2); }
+.pill.job-failed { background: var(--red-soft); color: var(--red); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }

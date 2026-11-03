@@ -10,7 +10,7 @@ export DEBIAN_FRONTEND=noninteractive
 problems=()
 
 info "1/6 Sicherung"
-"$(dirname "$0")/backup.sh" || problems+=("Sicherung fehlgeschlagen")
+"$(dirname "$0")/backup.sh" neubau || problems+=("Sicherung fehlgeschlagen")
 
 info "2/6 Linux-Updates"
 if apt-get update -qq && apt-get -y -qq -o Dpkg::Options::=--force-confold upgrade; then
@@ -46,6 +46,7 @@ banned=0; command -v fail2ban-client >/dev/null && banned="$(fail2ban-client sta
 set_status last_maintenance=now disk_used_pct="${disk:-0}" ssh_banned="${banned:-0}" \
   problems="$(IFS=';'; echo "${problems[*]:-}")"
 "$(dirname "$0")/pruefen.sh" || true
+snapshot
 
 if [ "${#problems[@]}" -gt 0 ]; then
   warn "Wartung mit Problemen beendet: ${problems[*]}"

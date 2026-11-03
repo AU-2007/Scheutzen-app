@@ -111,16 +111,40 @@ RandomizedDelaySec=5m
 WantedBy=timers.target
 CONF
 }
-unit backup  "Schützen-App: Sicherung"       "$APP_DIR/scripts/backup.sh"  "*-*-* 03:15:00"
+unit backup  "Schützen-App: Sicherung"       "$APP_DIR/scripts/backup.sh taeglich"  "*-*-* 03:15:00"
 unit pruefen "Schützen-App: Update-Prüfung"  "$APP_DIR/scripts/pruefen.sh" "*-*-* 06:30:00"
 unit wartung "Schützen-App: Wartung"         "$APP_DIR/scripts/wartung.sh" "Sun *-*-* 04:00:00"
+
+info "Wartungsdienst für die Wartungsseite der App"
+# Die App legt Aufträge in data/jobs/queue ab; dieser Dienst führt nur fest erlaubte Aktionen aus.
+install -d -o 1000 -g 1000 -m 0755 "$DATA_DIR/jobs" "$DATA_DIR/jobs/queue" "$DATA_DIR/jobs/log"
+cat > /etc/systemd/system/schuetzen-jobs.service <<CONF
+[Unit]
+Description=Schützen-App: Aufträge aus der Wartungsseite
+After=docker.service network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $APP_DIR/scripts/runner.py
+TimeoutStartSec=2h
+CONF
+cat > /etc/systemd/system/schuetzen-jobs.path <<CONF
+[Unit]
+Description=Schützen-App: auf Aufträge aus der Wartungsseite warten
+[Path]
+DirectoryNotEmpty=$DATA_DIR/jobs/queue
+MakeDirectory=yes
+[Install]
+WantedBy=paths.target
+CONF
+chmod +x "$APP_DIR/scripts/runner.py" "$APP_DIR/scripts/snapshot.py" 2>/dev/null || true
 systemctl daemon-reload
-systemctl enable --now schuetzen-backup.timer schuetzen-pruefen.timer schuetzen-wartung.timer >/dev/null
+systemctl enable --now schuetzen-backup.timer schuetzen-pruefen.timer schuetzen-wartung.timer schuetzen-jobs.path >/dev/null
 
 info "Erste Sicherung und Prüfung"
-[ -f "$DATA_DIR/verein.db" ] && "$APP_DIR/scripts/backup.sh" || true
+[ -f "$DATA_DIR/verein.db" ] && "$APP_DIR/scripts/backup.sh" manuell || true
 "$APP_DIR/scripts/pruefen.sh" || true
 set_status setup_done=now
+snapshot
 
 echo
 "$APP_DIR/scripts/status.sh" || true

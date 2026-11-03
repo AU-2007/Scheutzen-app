@@ -9,6 +9,7 @@ die dieselben Rechte wie der Mannschaftsführer dieser Mannschaft haben.
 """
 import calendar
 import os
+import re
 import secrets
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -1513,10 +1514,203 @@ def maintenance_status():
     st["backup_age_h"] = age("last_backup")
     st["check_age_h"] = age("checked_at")
     st["maint_age_h"] = age("last_maintenance")
+    built = [v for v in (st.get("last_rebuild"), st.get("last_update")) if isinstance(v, str)]
+    st["last_build"] = max(built) if built else None
     st["pending_list"] = st.get("pending_list") or []
     st["app_new"] = st.get("app_new") or []
     st["problems"] = [p_ for p_ in (st.get("problems") or "").split(";") if p_.strip()]
     return st
+
+
+def image_built_at():
+    """Zeitpunkt, zu dem das laufende Container-Image gebaut wurde (Datei wird beim Bauen angelegt)."""
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(os.path.join(os.path.dirname(__file__), ".build"))).isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------- Wartungsseite
+# Die App darf (im Container, ohne Root) keine Serverbefehle ausführen. Sie legt nur einen Auftrag
+# als JSON-Datei in data/jobs/queue/ ab. Der Wartungsdienst auf dem Server (scripts/runner.py)
+# prüft ihn noch einmal und führt nur fest eingebaute Aktionen aus.
+JOBS_DIR = os.path.join(os.path.dirname(DB_PATH), "jobs")
+JOB_ID_RE = re.compile(r"^\d{14}-[0-9a-f]{8}$")
+JOB_ACTIONS = {
+    "backup":   ("Sicherung jetzt", "Legt sofort eine Sicherung der Daten an (die letzten 5 manuellen bleiben)."),
+    "pruefen":  ("Auf Updates prüfen", "Sucht nach Linux-Updates, neuen App-Versionen und neueren Python-Modulen. Installiert nichts."),
+    "wartung":  ("Wartung jetzt", "Sicherung, alle Linux-Updates installieren, aufräumen. Wie sonntags um 04:00."),
+    "update":   ("App aktualisieren", "Holt die neue Version von GitHub und baut den Container neu. Vorher wird gesichert."),
+    "rebuild":  ("Container neu bauen", "Baut den Container auch ohne neue App-Version neu (aktuelle Sicherheitsupdates im Image). Vorher wird gesichert."),
+    "rollback": ("Zurückrollen", "Setzt die App auf eine frühere Version zurück."),
+    "restore":  ("Sicherung einspielen", "Ersetzt alle Daten durch den Stand der Sicherung."),
+}
+JOB_CONFIRM = {"rollback": "ZURÜCK", "restore": "EINSPIELEN"}
+JOB_STATES = {"queued": "wartet", "running": "läuft", "done": "fertig", "failed": "Fehler"}
+APP_MODULES = ("Flask", "Werkzeug", "Jinja2", "itsdangerous", "MarkupSafe", "click", "blinker", "gunicorn", "Pillow")
+
+
+def _read_json(path):
+    import json
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def job_list(limit=15):
+    jobs = []
+    qdir, ldir = os.path.join(JOBS_DIR, "queue"), os.path.join(JOBS_DIR, "log")
+    for d, default_state in ((qdir, "queued"), (ldir, None)):
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            if not n.endswith(".json") or not JOB_ID_RE.match(n[:-5]):
+                continue
+            data = _read_json(os.path.join(d, n))
+            if not data:
+                continue
+            data["id"] = n[:-5]
+            if default_state:
+                data["state"] = default_state
+            if data.get("action") not in JOB_ACTIONS:
+                data["action"] = "?"
+            jobs.append(data)
+    jobs.sort(key=lambda j: j["id"], reverse=True)
+    return jobs[:limit]
+
+
+def job_detail(jid):
+    if not JOB_ID_RE.match(jid or ""):
+        return None
+    data = _read_json(os.path.join(JOBS_DIR, "log", jid + ".json"))
+    if data is None:
+        data = _read_json(os.path.join(JOBS_DIR, "queue", jid + ".json"))
+        if data is None:
+            return None
+        data["state"] = "queued"
+    data["id"] = jid
+    try:
+        with open(os.path.join(JOBS_DIR, "log", jid + ".log"), "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 60000))
+            text = fh.read().decode("utf-8", "replace")
+        data["log"] = ("…\n" if size > 60000 else "") + re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+    except OSError:
+        data["log"] = ""
+    return data
+
+
+def module_versions(maint):
+    from importlib import metadata
+    import platform
+    outdated = {o.get("name", "").lower(): o.get("latest") for o in (maint or {}).get("outdated") or [] if isinstance(o, dict)}
+    mods = []
+    for name in APP_MODULES:
+        try:
+            ver = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            ver = None
+        mods.append({"name": name, "version": ver, "latest": outdated.get(name.lower())})
+    os_name = ""
+    try:
+        for line in open("/etc/os-release"):
+            if line.startswith("PRETTY_NAME="):
+                os_name = line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    others = [o for o in (maint or {}).get("outdated") or [] if isinstance(o, dict)
+              and o.get("name", "").lower() not in {m.lower() for m in APP_MODULES}]
+    return {"modules": mods, "python": platform.python_version(), "sqlite": sqlite3.sqlite_version,
+            "container_os": os_name, "others": others}
+
+
+@app.template_filter("termin")
+def fmt_systemd_time(val):
+    """systemd-Zeit ('Wed 2026-11-04 03:15:00 CET') -> 'heute 03:15', 'morgen 03:15', '08.11. 04:00'."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})", val or "")
+    if not m:
+        return "–"
+    d = date.fromisoformat(m.group(1))
+    delta = (d - date.today()).days
+    day = {0: "heute", 1: "morgen", -1: "gestern"}.get(delta, f"{d:%d.%m.}")
+    return f"{day} {m.group(2)}"
+
+
+@app.route("/admin/wartung")
+@admin_required
+def admin_maintenance():
+    maint = maintenance_status() or {}
+    jobs = job_list()
+    active = next((j for j in jobs if j.get("state") in ("queued", "running")), None)
+    show = job_detail(request.args.get("auftrag", "")) if request.args.get("auftrag") else None
+    if show is None and active:
+        show = job_detail(active["id"])
+    versions = [v for v in maint.get("versions") or [] if isinstance(v, dict)]
+    return render_template("wartung.html", maint=maint, jobs=jobs, active=active, show=show,
+                           versions=versions, backups=[b for b in maint.get("backups") or [] if isinstance(b, dict)],
+                           vers=module_versions(maint), built=image_built_at(), ACTIONS=JOB_ACTIONS,
+                           CONFIRM=JOB_CONFIRM, STATES=JOB_STATES, runner=os.path.isdir(os.path.join(JOBS_DIR, "queue")))
+
+
+@app.route("/admin/wartung/auftrag", methods=["POST"])
+@admin_required
+def admin_job_create():
+    import json
+    back = url_for("admin_maintenance")
+    action = request.form.get("action", "")
+    param = request.form.get("param", "").strip()
+    if action not in JOB_ACTIONS:
+        abort(400)
+    maint = maintenance_status() or {}
+    if action == "rollback":
+        known = {v.get("commit"): v for v in maint.get("versions") or [] if isinstance(v, dict)}
+        if param not in known:
+            flash("Diese Version ist nicht in der Liste. Seite neu laden und noch einmal wählen.", "error")
+            return redirect(back + "#zurueck")
+        if known[param].get("current"):
+            flash("Diese Version läuft bereits.", "info")
+            return redirect(back + "#zurueck")
+    elif action == "restore":
+        if param not in {b.get("file") for b in maint.get("backups") or [] if isinstance(b, dict)}:
+            flash("Diese Sicherung ist nicht in der Liste. Seite neu laden und noch einmal wählen.", "error")
+            return redirect(back + "#sicherungen")
+    else:
+        param = ""
+    if action in JOB_CONFIRM and request.form.get("confirm", "").strip().upper() != JOB_CONFIRM[action]:
+        flash(f"Zur Bestätigung bitte „{JOB_CONFIRM[action]}“ eintippen.", "error")
+        return redirect(back + ("#zurueck" if action == "rollback" else "#sicherungen"))
+    queue = os.path.join(JOBS_DIR, "queue")
+    if not os.path.isdir(queue):
+        flash("Der Wartungsdienst ist auf dem Server noch nicht eingerichtet: einmal sudo bash scripts/einrichten.sh ausführen.", "error")
+        return redirect(back)
+    if any(j.get("state") in ("queued", "running") for j in job_list()):
+        flash("Es läuft schon ein Auftrag. Bitte warten, bis er fertig ist.", "error")
+        return redirect(back)
+    jid = f"{datetime.now():%Y%m%d%H%M%S}-{secrets.token_hex(4)}"
+    me_ = current_user()
+    tmp = os.path.join(JOBS_DIR, f".{jid}.tmp")   # außerhalb der Warteschlange schreiben, dann verschieben
+    with open(tmp, "w") as fh:
+        json.dump({"action": action, "param": param, "by": me_["name"],
+                   "at": datetime.now().isoformat(timespec="seconds")}, fh, ensure_ascii=False)
+    os.replace(tmp, os.path.join(queue, jid + ".json"))
+    flash(f"Auftrag „{JOB_ACTIONS[action][0]}“ an den Server übergeben.", "success")
+    return redirect(url_for("admin_maintenance", auftrag=jid) + "#auftrag")
+
+
+@app.route("/admin/wartung/auftrag/<jid>.json")
+@admin_required
+def admin_job_status(jid):
+    data = job_detail(jid)
+    if data is None:
+        abort(404)
+    return {"id": data["id"], "state": data.get("state"), "label": JOB_STATES.get(data.get("state"), ""),
+            "rc": data.get("rc"), "started": data.get("started"), "ended": data.get("ended"), "log": data.get("log", "")}
 
 
 def admin_dashboard():
@@ -1550,6 +1744,7 @@ def admin_dashboard():
         "db": _size(DB_PATH), "avatars": _size(AVATAR_DIR) if os.path.isdir(AVATAR_DIR) else 0,
         "disk_free": disk.free, "disk_total": disk.total, "disk_pct": round(100 * disk.used / disk.total) if disk.total else 0,
         "python": platform.python_version(), "flask": flask.__version__, "sqlite": sqlite3.sqlite_version,
+        "built": image_built_at(),
         "host": platform.node(), "https": request.is_secure, "cookie_secure": app.config["SESSION_COOKIE_SECURE"],
         "secret_env": bool(os.environ.get("SECRET_KEY")) and os.environ.get("SECRET_KEY") != "bitte-aendern",
     }

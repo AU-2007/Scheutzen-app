@@ -39,6 +39,7 @@
         <a href="{{ url_for('users') }}">Benutzer</a>
         <a href="{{ url_for('groups') }}">Trainingsgruppen</a>
         <a href="{{ url_for('club') }}">Verein</a>
+        <a href="{{ url_for('admin_maintenance') }}">Wartung</a>
         {% endif %}
         <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="linkbtn">Abmelden</button></form>
       </div>

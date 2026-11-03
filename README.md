@@ -140,19 +140,47 @@ Das richtet ein:
 - **SSH**: höchstens 4 Versuche je Verbindung, Passwort-Anmeldung bleibt erlaubt (nur Schlüssel: `SSH_NUR_SCHLUESSEL=1 bash scripts/einrichten.sh`)
 - **Firewall** (ufw) mit offenem SSH, **Docker-Logs** begrenzt auf 3 × 10 MB
 - **Zeitpläne**: Sicherung täglich 03:15, Update-Prüfung täglich 06:30, Wartung sonntags 04:00
+- **Wartungsdienst** (`schuetzen-jobs.path`): führt die Aufträge von der Wartungsseite der App aus
 
 | Befehl | Was es tut |
 |---|---|
-| `./update.sh` | Neue App-Version von GitHub holen. Sichert vorher, prüft danach den Start und stellt bei einem Fehler automatisch die vorherige Version wieder her. |
+| `./update.sh` | Neue App-Version von GitHub holen (`--force`: neu bauen, `--rollback <commit>`: auf frühere Version). Sichert vorher, prüft danach den Start und stellt bei einem Fehler automatisch die vorherige Version wieder her. |
 | `./scripts/status.sh` | Überblick: App, letzte Sicherung, anstehende Updates, Neustart nötig, Firewall, fail2ban, SSH |
-| `./scripts/backup.sh` | Sicherung jetzt (Datenbank, Profilbilder, `.env`) nach `/opt/backup`, 14 Tage aufbewahrt |
+| `./scripts/backup.sh` | Sicherung jetzt (Datenbank, Profilbilder, `.env`) nach `BACKUP_DIR` (Standard `/opt/backup`) |
 | `./scripts/restore.sh` | Sicherungen anzeigen; mit Dateiname zurückspielen (sichert vorher den aktuellen Stand) |
 | `./scripts/pruefen.sh` | Prüft auf Linux-Paket-Updates und neue App-Versionen, ohne etwas zu installieren |
 | `./scripts/wartung.sh` | Alles auf einmal: Sicherung, Linux-Updates, App-Image neu bauen, aufräumen, Gesundheitscheck |
 
 Die **Admin-Übersicht** der App zeigt unter *Wartung & Updates* die letzte Sicherung, anstehende Linux-Pakete (Sicherheitsupdates markiert), ob ein Neustart nötig ist und ob es eine neue App-Version auf GitHub gibt.
 
-Sicherungen liegen auf demselben Server. Kopiere `/opt/backup` regelmäßig woandershin, zum Beispiel per `scp` oder `rsync` auf dein NAS.
+### Wartungsseite in der App
+
+Admins finden unter **Menü → Wartung** (`/admin/wartung`):
+- **Status** aller Skripte und Zeitpläne (zuletzt / nächstes Mal), letzte Sicherung, Prüfung, Wartung, Update, Neubau
+- **Versionen**: Python, Flask, Werkzeug, Jinja2, gunicorn, Pillow usw., Container- und Server-System, Kernel, Docker, cloudflared. Neuere Versionen werden markiert (Prüfung täglich 06:30).
+- **Knöpfe**: Sicherung jetzt, Auf Updates prüfen, Wartung jetzt, App aktualisieren, Container neu bauen. Die Ausgabe läuft live mit.
+- **Zurückrollen** auf eine der letzten 15 App-Versionen (Bestätigung „ZURÜCK“)
+- **Sicherung einspielen** (Bestätigung „EINSPIELEN“, der aktuelle Stand wird vorher gesichert)
+
+So bleibt das sicher: Die App selbst darf keine Befehle auf dem Server ausführen. Sie legt nur einen Auftrag in `data/jobs/queue/` ab. Der Wartungsdienst prüft ihn noch einmal und kennt nur diese sieben festen Aktionen. Versionen und Sicherungsdateien müssen zur bekannten Liste gehören. Es läuft immer nur ein Auftrag.
+
+Linux-Pakete lassen sich nicht zurückrollen, nur App-Versionen. Datenbank-Änderungen fügen nur Spalten hinzu, ältere Versionen laufen deshalb mit den neueren Daten. Versionen von vor der Wartungsseite haben diese Seite noch nicht, dann wieder nach vorne mit `./update.sh` auf dem Server.
+
+### Sicherungen auf einem festen Laufwerk
+
+Vor **jedem Neubau** (Update, Neu bauen, Zurückrollen, Wartung) wird automatisch gesichert, davon bleiben die **letzten 3**. Dazu tägliche (14 Tage) und manuelle (letzte 5). Die Dateien heißen `schuetzen-<art>-<datum>.tar.gz`.
+
+Am besten auf ein eigenes Laufwerk, dann sind die Sicherungen auch bei einem kaputten System noch da. Beispiel mit einem zusätzlichen Volume `/dev/sdb`:
+
+```bash
+mkfs.ext4 /dev/sdb                      # nur bei einem neuen, leeren Laufwerk!
+mkdir -p /mnt/backup
+echo "UUID=$(blkid -s UUID -o value /dev/sdb) /mnt/backup ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+echo "BACKUP_DIR=/mnt/backup" >> /opt/schuetzenverein/.env
+```
+
+Die Aufbewahrung lässt sich in der `.env` ändern: `BACKUP_KEEP_NEUBAU`, `BACKUP_KEEP_MANUELL`, `BACKUP_KEEP_TAGE`. Kopiere die Sicherungen trotzdem ab und zu woandershin (NAS, PC), zum Beispiel per `scp` oder `rsync`.
 
 ## Update
 

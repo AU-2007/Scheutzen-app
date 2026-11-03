@@ -10,6 +10,8 @@ echo "App"
 health="$(docker inspect -f '{{.State.Health.Status}}' schuetzen-mannschaften 2>/dev/null || echo 'läuft nicht')"
 row "Zustand" "$([ "$health" = healthy ] && ok "$health" || bad "$health")"
 row "Version" "$(cd "$APP_DIR" && git log -1 --format='%h vom %cd' --date=format:'%d.%m.%Y %H:%M' 2>/dev/null || echo '?')"
+row "Container gebaut" "$(docker image inspect schuetzenverein-mannschaften -f '{{.Created}}' 2>/dev/null | cut -c1-16 | tr T ' ' || echo '?') (UTC)"
+row "Container gestartet" "$(docker inspect -f '{{.State.StartedAt}}' schuetzen-mannschaften 2>/dev/null | cut -c1-16 | tr T ' ' || echo '?') (UTC)"
 row "Port 8000" "$(ss -tln 2>/dev/null | awk '$4 ~ /:8000$/ {print $4}' | head -1)"
 if systemctl list-unit-files cloudflared.service >/dev/null 2>&1; then
   ct="$(systemctl is-active cloudflared 2>/dev/null || true)"; row "Cloudflare Tunnel" "$([ "$ct" = active ] && ok "$ct" || bad "$ct")"

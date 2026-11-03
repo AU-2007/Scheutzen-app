@@ -24,6 +24,7 @@
       <a href="{{ url_for('index') }}" class="{{ 'on' if ep=='index' }}">Übersicht</a>
       <a href="{{ url_for('schedule') }}" class="{{ 'on' if ep in ('schedule','training','training_detail','training_slots') }}">Termine</a>
       <a href="{{ url_for('teams') }}" class="{{ 'on' if ep in ('teams','team','match','match_edit','team_edit','rwk_import') }}">Mannschaften</a>
+      {% if me.role == 'admin' %}<a href="{{ url_for('admin_maintenance') }}" class="{{ 'on' if ep == 'admin_maintenance' }}">Wartung</a>{% endif %}
     </nav>
     <details class="usermenu">
       <summary>

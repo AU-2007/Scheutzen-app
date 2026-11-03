@@ -7,7 +7,7 @@ DATA_DIR="$APP_DIR/data"
 STATUS_FILE="$DATA_DIR/wartung.json"
 
 # Einstellung aus der .env lesen (ohne die Datei auszuführen)
-env_get() { sed -n "s/^[[:space:]]*$1=//p" "$APP_DIR/.env" 2>/dev/null | tail -1 | tr -d '\r' | sed "s/^[\"']//; s/[\"']\$//"; }
+env_get() { [ -f "$APP_DIR/.env" ] || return 0; sed -n "s/^[[:space:]]*$1=//p" "$APP_DIR/.env" 2>/dev/null | tail -1 | tr -d '\r' | sed "s/^[\"']//; s/[\"']\$//" || true; }
 
 # Sicherungen liegen auf einem festen Laufwerk des Servers, Standard /opt/backup.
 # Anderes Laufwerk: in der .env z. B. BACKUP_DIR=/mnt/backup (eigene Festplatte / Block-Storage)
@@ -39,8 +39,11 @@ except Exception:
     data = {}
 for p in pairs:
     k, _, v = p.partition("=")
-    if v[:1] in "[{":
-        v = json.loads(v)
+    if v and v[0] in "[{":
+        try:
+            v = json.loads(v)
+        except ValueError:
+            pass
     elif v == "now":
         v = datetime.datetime.now().isoformat(timespec="seconds")
     elif v.lstrip("-").isdigit():

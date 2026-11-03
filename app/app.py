@@ -1600,7 +1600,9 @@ def job_detail(jid):
             size = fh.tell()
             fh.seek(max(0, size - 60000))
             text = fh.read().decode("utf-8", "replace")
-        data["log"] = ("…\n" if size > 60000 else "") + re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+        text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+        text = re.sub(r"(?:^\(Reading database \.\.\. ?\d*%?\)?\n)+", "", text, flags=re.M)   # apt-Fortschritt ausblenden
+        data["log"] = ("…\n" if size > 60000 else "") + text
     except OSError:
         data["log"] = ""
     return data

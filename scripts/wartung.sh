@@ -57,7 +57,7 @@ if $reboot; then
   if [ "${AUTO_REBOOT:-0}" = "1" ]; then
     warn "Neustart wegen Kernel-Update in 1 Minute …"; shutdown -r +1 "Neustart nach Wartung" >/dev/null
   else
-    warn "Ein Neustart ist nötig (Kernel-Update). Bei Gelegenheit: reboot"
+    warn "Ein Neustart ist nötig (Kernel-Update). Automatisch um 04:30, sofort in der App: Wartung → Server neu starten"
   fi
 fi
 [ "${#problems[@]}" -eq 0 ]

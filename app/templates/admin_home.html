@@ -113,7 +113,7 @@
         {% if maint.pending_security %}<span class="pill av-nein">{{ maint.pending_security }} Sicherheit</span>{% endif %}{% else %}<span class="ok-text">aktuell</span>{% endif %}
         {% if maint.checked_at %}<span class="muted small">· geprüft {{ maint.checked_at|seit }}</span>{% endif %}</dd>
       <dt>Neustart nötig</dt>
-      <dd>{% if maint.reboot_required %}<span class="pill av-vielleicht">ja</span> <span class="muted small">{{ maint.reboot_pkgs|join(', ') }} · automatisch um 04:30</span>{% else %}nein{% endif %}</dd>
+      <dd>{% if maint.reboot_required %}<span class="pill av-vielleicht">ja</span> <span class="muted small">{{ maint.reboot_pkgs|join(', ') }} · automatisch um 04:30 · <a href="{{ url_for('admin_maintenance') }}">jetzt neu starten</a></span>{% else %}nein{% endif %}</dd>
       <dt>App-Version</dt>
       <dd>{% if maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} auf GitHub</b>{% else %}<span class="ok-text">aktuell</span>{% endif %}
         {% if maint.app_version %}<span class="muted small">· installiert {{ maint.app_version }}</span>{% endif %}</dd>

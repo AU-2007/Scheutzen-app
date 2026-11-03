@@ -30,14 +30,15 @@
 <section>
   <h2>Aktionen</h2>
   <div class="card stack">
-    {% for key in ('backup', 'pruefen', 'wartung', 'update', 'rebuild') %}
+    {% for key in ('backup', 'pruefen', 'wartung', 'update', 'rebuild', 'reboot') %}
     <form method="post" action="{{ url_for('admin_job_create') }}" class="job-action"
-          {% if key in ('wartung', 'update', 'rebuild') %}onsubmit='return confirm({{ (ACTIONS[key][0] ~ "? Die App ist dabei kurz nicht erreichbar.")|tojson }})'{% endif %}>
+          {% if key in ('wartung', 'update', 'rebuild', 'reboot') %}onsubmit='return confirm({{ (ACTIONS[key][0] ~ "? Die App ist dabei kurz nicht erreichbar.")|tojson }})'{% endif %}>
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="action" value="{{ key }}">
       <div><b>{{ ACTIONS[key][0] }}</b><br><span class="muted small">{{ ACTIONS[key][1] }}
-        {% if key == 'update' and maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} verfügbar.</b>{% endif %}</span></div>
-      <button class="btn {{ 'primary' if key == 'update' and maint.app_behind else '' }}" {{ 'disabled' if active }}>Starten</button>
+        {% if key == 'update' and maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} verfügbar.</b>{% endif %}
+        {% if key == 'reboot' and maint.reboot_required %}<b>Neustart nötig{% if maint.reboot_pkgs %} ({{ maint.reboot_pkgs|join(', ') }}){% endif %}.</b> Sonst automatisch um 04:30.{% endif %}</span></div>
+      <button class="btn {{ 'primary' if (key == 'update' and maint.app_behind) or (key == 'reboot' and maint.reboot_required) else '' }}" {{ 'disabled' if active }}>{{ 'Neu starten' if key == 'reboot' else 'Starten' }}</button>
     </form>
     {% endfor %}
     {% if active %}<p class="small muted" style="margin:0">Es läuft gerade ein Auftrag. Neue Aufträge gehen erst danach.</p>{% endif %}
@@ -64,7 +65,7 @@
       <dt>Container gebaut</dt>
       <dd>{{ built|seit if built else (maint.last_build|seit if maint.last_build else 'unbekannt') }}</dd>
       {% if maint.last_restore %}<dt>Eingespielt</dt><dd>{{ maint.last_restore|seit }}</dd>{% endif %}
-      {% if maint.reboot_required %}<dt>Neustart</dt><dd><span class="pill av-vielleicht">nötig</span> <span class="muted small">automatisch um 04:30</span></dd>{% endif %}
+      {% if maint.reboot_required %}<dt>Neustart</dt><dd><span class="pill av-vielleicht">nötig</span> <span class="muted small">automatisch um 04:30 oder oben „Server neu starten“</span></dd>{% endif %}
     </dl>
     {% if maint.timers %}
     <div class="flush" style="overflow-x:auto">

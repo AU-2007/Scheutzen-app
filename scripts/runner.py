@@ -58,6 +58,9 @@ def build_command(action, param):
         return [os.path.join(APP_DIR, "update.sh")], None
     if action == "rebuild":
         return [os.path.join(APP_DIR, "update.sh"), "--force"], None
+    if action == "reboot":
+        exe = "/usr/sbin/shutdown" if os.path.exists("/usr/sbin/shutdown") else "/sbin/shutdown"
+        return [exe, "-r", "+1", "Neustart über die Wartungsseite der App"], None
     if action == "rollback":
         if not isinstance(param, str) or not COMMIT.match(param):
             return None, "Ungültige Version."
@@ -139,6 +142,8 @@ def handle(path):
             except subprocess.TimeoutExpired:
                 rc = 124
                 log.write("\nAbgebrochen: Zeitlimit von 2 Stunden überschritten.\n")
+            if action == "reboot" and rc == 0:
+                log.write("Der Server startet in 1 Minute neu. App und Tunnel sind danach in 1 bis 2 Minuten wieder da.\n")
             status.update(state="done" if rc == 0 else "failed", rc=rc, ended=now())
             log.write(f"\nEnde {status['ended']}: {'erfolgreich' if rc == 0 else f'Fehler (Code {rc})'}\n")
     write_json(status_path, status)

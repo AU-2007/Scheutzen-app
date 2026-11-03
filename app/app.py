@@ -1542,6 +1542,7 @@ JOB_ACTIONS = {
     "wartung":  ("Wartung jetzt", "Sicherung, alle Linux-Updates installieren, aufräumen. Wie sonntags um 04:00."),
     "update":   ("App aktualisieren", "Holt die neue Version von GitHub und baut den Container neu. Vorher wird gesichert."),
     "rebuild":  ("Container neu bauen", "Baut den Container auch ohne neue App-Version neu (aktuelle Sicherheitsupdates im Image). Vorher wird gesichert."),
+    "reboot":   ("Server neu starten", "Startet den ganzen Server neu (nach 1 Minute). App und Tunnel sind 1 bis 2 Minuten weg und starten von selbst wieder."),
     "rollback": ("Zurückrollen", "Setzt die App auf eine frühere Version zurück."),
     "restore":  ("Sicherung einspielen", "Ersetzt alle Daten durch den Stand der Sicherung."),
 }

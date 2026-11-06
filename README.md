@@ -66,7 +66,7 @@ Protokolle werden nach 90 Tagen gelöscht. Läuft die App hinter einem Reverse P
 
 Unter **Profil → Termine im Handy-Kalender → Kalender verbinden**. Die Seite erkennt das Gerät und zeigt nur den passenden Knopf:
 - **iPhone/iPad/Mac:** „Zum Kalender hinzufügen“ → „Abonnieren“.
-- **Samsung/Android:** „Mit Google-Kalender verbinden“ → „Hinzufügen“ (kostenlos über das Google-Konto auf dem Handy). Die Termine erscheinen dann auch im Samsung-Kalender. Geht es am Handy nicht, einmal am PC mit demselben Google-Konto. Ohne Google-Konto: die freie App ICSx⁵ von F-Droid.
+- **Samsung/Android:** „Mit Google-Kalender verbinden“ → „Hinzufügen“ (kostenlos über das Google-Konto auf dem Handy). Danach einmal in der Google-Kalender-App unter Einstellungen → (Mehr anzeigen) → Kalender antippen → **„Synchronisieren“ einschalten**, sonst bleibt der Kalender auf dem Handy leer. Dann erscheinen die Termine auch im Samsung-Kalender. Geht es am Handy nicht, einmal am PC mit demselben Google-Konto. Ohne Google-Konto: die freie App ICSx⁵ von F-Droid.
 - **PC:** Google Kalender oder Outlook.
 
 Zugesagte Wettkämpfe und Trainings erscheinen automatisch, Absagen und Ausfälle verschwinden, Verlegungen werden übernommen. Kalender holen die Termine selbst ab (meist stündlich, Google nur alle paar Stunden). Wer kein Abo will: Direkt nach jeder Zusage erscheint der Knopf **„📅 In meinen Kalender eintragen“** für diesen einen Termin (kostenlos, ohne Einrichtung).

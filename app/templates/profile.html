@@ -49,12 +49,13 @@
       {% elif platform == 'android' %}
       <a class="btn primary big-btn" href="https://calendar.google.com/calendar/r?cid={{ cal_url|replace("http://", "https://")|urlencode }}" target="_blank" rel="noopener">📅 Mit Google-Kalender verbinden</a>
       <p class="muted small" style="margin:0">Kostenlos über dein Google-Konto, das auf dem Handy schon eingerichtet ist. „Hinzufügen“ tippen. Die Termine erscheinen dann auch im Samsung-Kalender. Lässt Google es am Handy nicht zu: einmal am PC mit demselben Google-Konto auf diese Seite gehen.</p>
+      <p class="small sync-hint" style="margin:0"><b>Danach einmal wichtig:</b> In der Google-Kalender-App ☰ → Einstellungen → ggf. „Mehr anzeigen“ → den Kalender „{{ VEREIN }} – {{ me.name }}“ antippen → <b>„Synchronisieren“ einschalten</b>. Erst dann kommen die Termine aufs Handy und in den Samsung-Kalender.</p>
       {% else %}
       <div class="inline wrap">
         <a class="btn primary" href="https://calendar.google.com/calendar/r?cid={{ cal_url|replace("http://", "https://")|urlencode }}" target="_blank" rel="noopener">Google Kalender</a>
         <a class="btn" href="{{ webcal }}">Outlook / Apple</a>
       </div>
-      <p class="muted small" style="margin:0">Mit Google verbunden erscheint es auch auf Samsung- und Android-Handys mit demselben Google-Konto.</p>
+      <p class="muted small" style="margin:0">Mit Google verbunden erscheint es auch auf Samsung- und Android-Handys mit demselben Google-Konto. Dort einmal in der Google-Kalender-App unter Einstellungen → Kalender antippen → <b>„Synchronisieren“ einschalten</b>, sonst bleibt der Kalender auf dem Handy leer.</p>
       {% endif %}
     {% if me.cal_seen %}
     <p class="small" style="margin:0"><span class="pill av-ja">verbunden</span> Zuletzt abgerufen {{ me.cal_seen|seit }} von {{ me.cal_client or 'Kalender-App' }}.</p>

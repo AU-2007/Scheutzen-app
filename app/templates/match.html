@@ -112,6 +112,10 @@
     <button name="status" value="{{ k }}" class="seg {{ k }} {{ 'on' if my_status == k }}">{{ label }}</button>
     {% endfor %}
   </form>
+  {% if my_status == 'ja' %}
+  <p class="small" style="margin:8px 0 0">{% if me.cal_token %}<span class="muted">Kommt automatisch in deinen Kalender.</span>{% else %}<a class="btn small-btn" href="{{ url_for('match_ics', mid=m.id) }}">📅 In meinen Kalender</a>
+    <a class="muted" href="{{ url_for('profile') }}#kalender">Automatisch?</a>{% endif %}</p>
+  {% endif %}
 </section>
 {% endif %}
 

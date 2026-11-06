@@ -56,6 +56,10 @@
   {{ tr_buttons(dict(slot_id=s.id, date=d, my_status=mine, free=free), url_for('training_detail', slot_id=s.id, iso=d), True) }}
   {% endif %}
   {% if free == 0 and mine not in ('ja', 'spaeter') %}<p class="muted small">Alle Stände sind belegt.</p>{% endif %}
+  {% if mine in ('ja', 'spaeter') %}
+  <p class="small" style="margin:8px 0 0">{% if me.cal_token %}<span class="muted">Kommt automatisch in deinen Kalender.</span>{% else %}<a class="btn small-btn" href="{{ url_for('training_ics', slot_id=s.id, iso=d) }}">📅 In meinen Kalender</a>
+    <a class="muted" href="{{ url_for('profile') }}#kalender">Automatisch?</a>{% endif %}</p>
+  {% endif %}
 </section>
 {% elif past %}
 <p class="muted small">Dieses Training liegt in der Vergangenheit.</p>

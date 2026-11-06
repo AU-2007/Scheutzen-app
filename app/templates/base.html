@@ -52,6 +52,9 @@
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
   {% endwith %}
+  {% set ics_offer = session.pop('ics_offer', None) if me else None %}
+  {% if ics_offer and ics_offer.startswith('/') %}<div class="flash ok ics-offer"><a class="btn small-btn primary" href="{{ ics_offer }}">📅 In meinen Kalender eintragen</a>
+    <a class="small" href="{{ url_for('profile') }}#kalender">Immer automatisch?</a></div>{% endif %}
   {% block content %}{% endblock %}
 </main>
 </body>

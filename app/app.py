@@ -12,7 +12,7 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from functools import wraps
 
@@ -320,7 +320,9 @@ MIGRATIONS = [
     ("opp_shooters", "gender", "TEXT NOT NULL DEFAULT ''"),
     ("matches", "opp_team_id", "INTEGER"),                # Gegnermannschaft aus der Gegnerliste
     ("matches", "area", "TEXT NOT NULL DEFAULT ''"),       # LG | KK | '' = aus Disziplin der Mannschaft
-    ("matches", "lanes", "INTEGER"),                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
+    ("matches", "lanes", "INTEGER"),
+    ("users", "cal_token", "TEXT"),                        # geheimer Schlüssel fürs Kalender-Abo, NULL = aus
+    ("users", "cal_scope", "TEXT NOT NULL DEFAULT 'zusage'"),  # zusage | alle                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
     ("lineup", "lane", "INTEGER"),                         # Stand
     ("lineup", "relay", "INTEGER"),                        # Durchgang
     ("lineup", "pos", "INTEGER NOT NULL DEFAULT 0"),       # Reihenfolge / Paarung
@@ -792,6 +794,20 @@ def profile():
                 flash("Profilbild gespeichert.", "ok")
             except Exception:
                 flash("Das Bild konnte nicht gelesen werden. Bitte ein JPG oder PNG wählen.", "error")
+        elif action in ("cal_on", "cal_new"):
+            ex("UPDATE users SET cal_token=? WHERE id=?", (secrets.token_urlsafe(32), u["id"]))
+            flash("Neuer Kalender-Link erzeugt. Der alte funktioniert nicht mehr." if action == "cal_new"
+                  else "Fast fertig: jetzt noch auf den Knopf unten tippen.", "ok")
+            return redirect(url_for("profile") + "#kalender")
+        elif action == "cal_off":
+            ex("UPDATE users SET cal_token=NULL WHERE id=?", (u["id"],))
+            flash("Kalender getrennt. Die Termine verschwinden beim nächsten Abgleich.", "ok")
+            return redirect(url_for("profile") + "#kalender")
+        elif action == "cal_scope":
+            scope = request.form.get("scope") if request.form.get("scope") in CAL_SCOPES else "zusage"
+            ex("UPDATE users SET cal_scope=? WHERE id=?", (scope, u["id"]))
+            flash("Gespeichert. Dein Kalender übernimmt das beim nächsten Abgleich.", "ok")
+            return redirect(url_for("profile") + "#kalender")
         elif action == "avatar_delete":
             try:
                 os.remove(os.path.join(AVATAR_DIR, f"{u['id']}.jpg"))
@@ -801,7 +817,195 @@ def profile():
             flash("Profilbild entfernt.", "ok")
         return redirect(url_for("profile"))
     teams = q(f"SELECT name FROM teams WHERE id IN ({MY_TEAMS_SQL}) ORDER BY name", {"u": u["id"]})
-    return render_template("profile.html", stats=user_stats(u["id"]), teams=teams, ACCENTS=ACCENTS, THEMES=THEMES)
+    cal_url = url_for("calendar_feed", token=u["cal_token"], _external=True) if u["cal_token"] else None
+    return render_template("profile.html", stats=user_stats(u["id"]), teams=teams, ACCENTS=ACCENTS, THEMES=THEMES,
+                           cal_url=cal_url, CAL_SCOPES=CAL_SCOPES, platform=device_platform())
+
+
+# ---------------------------------------------------------------- Kalender-Abo
+# Jeder Benutzer kann einen geheimen Link erzeugen und ihn in Handy, Outlook oder Google Kalender
+# abonnieren. Der Kalender ruft den Link regelmäßig ab: zugesagte Termine erscheinen, abgesagte
+# verschwinden. Der Link ist das Passwort fürs Abo (256 Bit Zufall); er zeigt nur Termine, keine
+# anderen Daten, und lässt sich jederzeit neu erzeugen oder abschalten.
+CAL_SCOPES = {
+    "zusage": "Nur Termine, denen ich zugesagt habe",
+    "alle": "Alle meine Termine (offene und „Vielleicht“ als vorläufig, Absagen nicht)",
+}
+CAL_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{40,64}$")
+ICS_TZ = """BEGIN:VTIMEZONE
+TZID:Europe/Berlin
+BEGIN:DAYLIGHT
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0200
+TZNAME:CEST
+DTSTART:19700329T020000
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU
+END:DAYLIGHT
+BEGIN:STANDARD
+TZOFFSETFROM:+0200
+TZOFFSETTO:+0100
+TZNAME:CET
+DTSTART:19701025T030000
+RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU
+END:STANDARD
+END:VTIMEZONE"""
+
+
+def ics_text(val):
+    return str(val or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "")
+
+
+def ics_fold(line):
+    """Zeilen nach RFC 5545 auf 75 Bytes umbrechen (UTF-8-Zeichen nicht zerschneiden)."""
+    out, cur = [], ""
+    for ch in line:
+        if len((cur + ch).encode()) > (75 if not out else 74):
+            out.append(cur); cur = ""
+        cur += ch
+    out.append(cur)
+    return "\r\n ".join(out)
+
+
+def ics_time(d_iso, hhmm):
+    return d_iso.replace("-", "") + "T" + hhmm.replace(":", "")[:4] + "00"
+
+
+def ics_event(uid, d_iso, start, end, minutes, summary, location="", desc="", url="", tentative=False, stamp=""):
+    lines = ["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{stamp}"]
+    t = re.match(r"^(\d{1,2}):(\d{2})", start or "")
+    if t:
+        begin = datetime.strptime(f"{d_iso} {int(t.group(1)):02d}:{t.group(2)}", "%Y-%m-%d %H:%M")
+        e = re.match(r"^(\d{1,2}):(\d{2})", end or "")
+        fin = datetime.strptime(f"{d_iso} {int(e.group(1)):02d}:{e.group(2)}", "%Y-%m-%d %H:%M") if e else None
+        if not fin or fin <= begin:
+            fin = begin + timedelta(minutes=minutes)
+        lines += [f"DTSTART;TZID=Europe/Berlin:{begin:%Y%m%dT%H%M%S}", f"DTEND;TZID=Europe/Berlin:{fin:%Y%m%dT%H%M%S}"]
+    else:   # ohne Uhrzeit: ganztägig
+        d = date.fromisoformat(d_iso)
+        lines += [f"DTSTART;VALUE=DATE:{d:%Y%m%d}", f"DTEND;VALUE=DATE:{d + timedelta(days=1):%Y%m%d}"]
+    lines.append("SUMMARY:" + ics_text(summary))
+    if location:
+        lines.append("LOCATION:" + ics_text(location))
+    if desc:
+        lines.append("DESCRIPTION:" + ics_text(desc))
+    if url:
+        lines.append("URL:" + url)
+    lines += ["STATUS:" + ("TENTATIVE" if tentative else "CONFIRMED"), "TRANSP:OPAQUE", "END:VEVENT"]
+    return lines
+
+
+def calendar_events(u, scope):
+    """Termine fürs Abo: Wettkämpfe ab 60 Tagen zurück bis 1 Jahr voraus, Trainings bis 120 Tage voraus."""
+    today = date.today()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    host = request.host.split(":")[0]
+    club = setting("club_name") or VEREIN_NAME
+    out = []
+    for m in matches_for(u["id"], date_from=(today - timedelta(days=60)).isoformat(),
+                         date_to=(today + timedelta(days=365)).isoformat()):
+        st = m["my_status"]
+        if not m["is_member"] or st == "nein" or (scope == "zusage" and st != "ja"):
+            continue
+        if st != "ja" and m["date"] < today.isoformat():   # Vergangenes nur, wenn zugesagt
+            continue
+        tentative = st != "ja"
+        title = f"{m['team_name']} {'vs.' if m['home'] else '@'} {m['opponent']}"
+        if tentative:
+            title = ("Vielleicht: " if st == "vielleicht" else "Offen: ") + title
+        info = [f"Wettkampf {m['team_name']} gegen {m['opponent']} ({'Heim' if m['home'] else 'Auswärts'})"]
+        if m["in_lineup"]:
+            info.append("Du bist aufgestellt.")
+        if m["meet"]:
+            info.append(f"Treffpunkt: {m['meet']}")
+        if m["move_date"]:
+            info.append(f"Verlegung beantragt auf {m['move_date']} {m['move_time'] or ''}".strip())
+        if m["notes"]:
+            info.append(m["notes"])
+        if tentative:
+            info.append("Noch nicht zugesagt. Zusagen in der App.")
+        out.append(ics_event(f"wettkampf-{m['id']}@{host}", m["date"], m["time"], "", 180, title,
+                             m["location"] or ("Schützenhaus " + club if m["home"] else ""), "\n".join(info),
+                             url_for("match", mid=m["id"], _external=True), tentative, stamp))
+    for t in trainings(today - timedelta(days=14), today + timedelta(days=120), u["id"]):
+        st = t["my_status"]
+        if t["cancelled"] or st == "nein" or (scope == "zusage" and st not in ("ja", "spaeter")):
+            continue
+        if not st and (scope == "zusage" or not t["for_me"] or t["date"] < today.isoformat()):
+            continue
+        tentative = st not in ("ja", "spaeter")
+        title = ("Offen: " if tentative else "") + (t["title"] or "Training") + (" (später)" if st == "spaeter" else "")
+        info = ["Sondertraining" if t["special"] else "Training"]
+        if t["note"]:
+            info.append(t["note"])
+        if tentative:
+            info.append("Noch nicht zugesagt. Zusagen in der App.")
+        out.append(ics_event(f"training-{t['slot_id']}-{t['date']}@{host}", t["date"], t["start"], t["end"], 120,
+                             title, t["location"] or ("Schützenhaus " + club), "\n".join(info),
+                             url_for("training_detail", slot_id=t["slot_id"], iso=t["date"], _external=True),
+                             tentative, stamp))
+    return out
+
+
+def device_platform():
+    ua = request.headers.get("User-Agent", "")
+    if "Android" in ua:
+        return "android"
+    if re.search(r"iPhone|iPad|iPod|Macintosh", ua):
+        return "apple"
+    return "pc"
+
+
+def single_event(prefix):
+    """Einzelnen Termin als .ics zum Antippen (ohne Abo). Nur eigene Termine."""
+    u = current_user()
+    ev = next((e for e in calendar_events(u, "alle") if e[1] == f"UID:{prefix}@{request.host.split(':')[0]}"), None)
+    if not ev:
+        abort(404)
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Schuetzenverein//Mannschaften//DE", "METHOD:PUBLISH"]
+    lines += ICS_TZ.splitlines() + ev + ["END:VCALENDAR"]
+    resp = app.response_class("\r\n".join(ics_fold(l) for l in lines) + "\r\n", mimetype="text/calendar")
+    resp.headers["Content-Type"] = "text/calendar; charset=utf-8"
+    resp.headers["Content-Disposition"] = 'attachment; filename="termin.ics"'
+    return resp
+
+
+@app.route("/wettkampf/<int:mid>/kalender.ics")
+@login_required
+def match_ics(mid):
+    return single_event(f"wettkampf-{mid}")
+
+
+@app.route("/training/<int:slot_id>/<iso>/kalender.ics")
+@login_required
+def training_ics(slot_id, iso):
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", iso):
+        abort(404)
+    return single_event(f"training-{slot_id}-{iso}")
+
+
+@app.route("/kalender/<token>.ics")
+def calendar_feed(token):
+    """Öffentlich erreichbar, aber nur mit dem geheimen Schlüssel. Keine Anmeldung nötig,
+    weil Kalender-Apps sich nicht anmelden können."""
+    if not CAL_TOKEN_RE.match(token):
+        abort(404)
+    u = q("SELECT * FROM users WHERE cal_token=? AND active=1", (token,), one=True)
+    if not u:
+        abort(404)
+    club = setting("club_name") or VEREIN_NAME
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Schuetzenverein//Mannschaften//DE", "CALSCALE:GREGORIAN",
+             "METHOD:PUBLISH", "X-WR-CALNAME:" + ics_text(f"{club} – {u['name']}"), "X-WR-TIMEZONE:Europe/Berlin",
+             "REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H"]
+    lines += ICS_TZ.splitlines()
+    for ev in calendar_events(u, u["cal_scope"] if u["cal_scope"] in CAL_SCOPES else "zusage"):
+        lines += ev
+    lines.append("END:VCALENDAR")
+    resp = app.response_class("\r\n".join(ics_fold(l) for l in lines) + "\r\n", mimetype="text/calendar")
+    resp.headers["Content-Type"] = "text/calendar; charset=utf-8"
+    resp.headers["Content-Disposition"] = 'inline; filename="termine.ics"'
+    resp.headers["Cache-Control"] = "private, no-store"
+    resp.headers["X-Robots-Tag"] = "noindex"
+    return resp
 
 
 @app.route("/avatar/<int:uid>")
@@ -1075,6 +1279,8 @@ def training_answer(slot_id, iso):
           ON CONFLICT(slot_id, date, user_id) DO UPDATE SET status=excluded.status, area=excluded.area""",
        (slot_id, d, u["id"], status, area))
     flash(f"Gespeichert: {TR_STATUS[status]}" + (f" ({s['area1'] if area == 1 else s['area2']})" if area and status != "nein" else ""), "ok")
+    if status in ("ja", "spaeter") and not u["cal_token"]:
+        session["ics_offer"] = url_for("training_ics", slot_id=slot_id, iso=d)
     return redirect(back)
 
 
@@ -2223,6 +2429,8 @@ def match_availability(mid):
     ex("""INSERT INTO availability (match_id, user_id, status) VALUES (?,?,?)
           ON CONFLICT(match_id, user_id) DO UPDATE SET status=excluded.status""", (mid, u["id"], status))
     flash(f"Gespeichert: {AVAIL[status]}", "ok")
+    if status == "ja" and not u["cal_token"]:
+        session["ics_offer"] = url_for("match_ics", mid=mid)
     back = request.form.get("back")
     return redirect(safe_next(back, url_for("match", mid=mid)))
 

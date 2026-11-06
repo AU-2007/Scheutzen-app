@@ -62,6 +62,17 @@ Protokolle werden nach 90 Tagen gelöscht. Läuft die App hinter einem Reverse P
 - **Gegner** (Admin, Mannschaftsführer): Jeder Gegnerverein wird einmal angelegt, mit Ort, Mannschaften (je Disziplin) und Schützen (mit Pass-Nr.). Beim Wettkampf wählt man die Gegnermannschaft aus der Liste, der Ort wird bei Auswärtskämpfen übernommen. Ein RWK-Import verknüpft passende Gegner automatisch.
 - **Import** (Verein → Daten importieren): Schützen (Name, Spieler-ID, Pass-Nr., Verein) oder Gegner aus einer CSV-Datei, zum Beispiel aus dem Stammdaten-Export des DISAG OpticScore Servers oder aus Excel. Neue Schützen bekommen ein Startpasswort, das nach dem Import einmal angezeigt wird.
 
+## Termine im Handy-Kalender
+
+Unter **Profil → Termine im Handy-Kalender → Kalender verbinden**. Die Seite erkennt das Gerät und zeigt nur den passenden Knopf:
+- **iPhone/iPad/Mac:** „Zum Kalender hinzufügen“ → „Abonnieren“.
+- **Samsung/Android:** „Mit Google-Kalender verbinden“ → „Hinzufügen“ (kostenlos über das Google-Konto auf dem Handy). Die Termine erscheinen dann auch im Samsung-Kalender. Geht es am Handy nicht, einmal am PC mit demselben Google-Konto. Ohne Google-Konto: die freie App ICSx⁵ von F-Droid.
+- **PC:** Google Kalender oder Outlook.
+
+Zugesagte Wettkämpfe und Trainings erscheinen automatisch, Absagen und Ausfälle verschwinden, Verlegungen werden übernommen. Kalender holen die Termine selbst ab (meist stündlich, Google nur alle paar Stunden). Wer kein Abo will: Direkt nach jeder Zusage erscheint der Knopf **„📅 In meinen Kalender eintragen“** für diesen einen Termin (kostenlos, ohne Einrichtung).
+
+Der Abo-Link (`/kalender/<geheim>.ics`) funktioniert ohne Anmeldung, weil Kalender-Apps sich nicht anmelden können. Er enthält 256 Bit Zufall, zeigt nur die Termine dieses Benutzers und lässt sich neu erzeugen oder trennen. Gesperrte Benutzer bekommen nichts.
+
 ## Wettkampf: Gegnerschützen, Standplan, DISAG
 
 - **Gegnerschützen:** Beim Wettkampf die Schützen des Gegners eintragen: aus der Gegnerliste, alle Stammschützen der Mannschaft mit einem Klick oder frei (wahlweise gleich in die Gegnerliste übernehmen). Ihre Ringe trägt man neben den eigenen ein, die Summe des Gegners rechnet die App aus.

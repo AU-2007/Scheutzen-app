@@ -33,6 +33,68 @@
   {% endif %}
 </section>
 
+{# ---------- Kalender-Abo ---------- #}
+{% set webcal = cal_url|replace('https://', 'webcal://')|replace('http://', 'webcal://') if cal_url else '' %}
+<section id="kalender">
+  <h2>Termine im Handy-Kalender</h2>
+  <div class="card stack">
+    {% if not cal_url %}
+    <p style="margin:0">Zugesagte Termine landen automatisch in deinem Kalender, Absagen verschwinden wieder.</p>
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="cal_on">
+      <button class="btn primary">Kalender verbinden</button></form>
+    {% else %}
+      {% if platform == 'apple' %}
+      <a class="btn primary big-btn" href="{{ webcal }}">📅 Zum Kalender hinzufügen</a>
+      <p class="muted small" style="margin:0">Danach „Abonnieren“ tippen. Fertig.</p>
+      {% elif platform == 'android' %}
+      <a class="btn primary big-btn" href="https://calendar.google.com/calendar/r?cid={{ webcal|urlencode }}" target="_blank" rel="noopener">📅 Mit Google-Kalender verbinden</a>
+      <p class="muted small" style="margin:0">Kostenlos über dein Google-Konto, das auf dem Handy schon eingerichtet ist. „Hinzufügen“ tippen. Die Termine erscheinen dann auch im Samsung-Kalender. Lässt Google es am Handy nicht zu: einmal am PC mit demselben Google-Konto auf diese Seite gehen.</p>
+      {% else %}
+      <div class="inline wrap">
+        <a class="btn primary" href="https://calendar.google.com/calendar/r?cid={{ webcal|urlencode }}" target="_blank" rel="noopener">Google Kalender</a>
+        <a class="btn" href="{{ webcal }}">Outlook / Apple</a>
+      </div>
+      <p class="muted small" style="margin:0">Mit Google verbunden erscheint es auch auf Samsung- und Android-Handys mit demselben Google-Konto.</p>
+      {% endif %}
+    <details class="small">
+      <summary>Weitere Möglichkeiten &amp; Einstellungen</summary>
+      <div class="stack" style="margin-top:10px">
+        <label>Dein Kalender-Link (für andere Programme)
+          <span class="pw-row"><input id="cal-url" value="{{ cal_url }}" readonly onclick="this.select()">
+          <button type="button" class="btn small-btn" id="cal-copy">Kopieren</button></span></label>
+        <div class="inline wrap">
+          {% if platform == 'apple' %}<a class="btn small-btn" href="https://calendar.google.com/calendar/r?cid={{ webcal|urlencode }}" target="_blank" rel="noopener">Über Google-Konto</a>{% endif %}
+          {% if platform != 'apple' %}<a class="btn small-btn" href="{{ webcal }}">Apple / Outlook</a>{% endif %}
+        </div>
+        <p class="muted" style="margin:0">Der Kalender holt neue Termine selbst ab, je nach Gerät etwa stündlich, über Google nur alle paar Stunden.</p>
+        {% if platform == 'android' %}<p class="muted" style="margin:0">Ohne Google-Konto: Nach jeder Zusage gibt es den Knopf „📅 In meinen Kalender eintragen“. Oder die freie App ICSx⁵ (kostenlos bei <a href="https://f-droid.org/packages/at.bitfire.icsdroid/" target="_blank" rel="noopener">F-Droid</a>) und dann „Apple / Outlook“ tippen.</p>{% endif %}
+        <form method="post">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="cal_scope">
+          {% for k, label in CAL_SCOPES.items() %}<label class="choice-line"><input type="radio" name="scope" value="{{ k }}" {{ 'checked' if (me.cal_scope or 'zusage') == k }} onchange="this.form.submit()"> {{ label }}</label>{% endfor %}
+          <noscript><button class="btn small-btn">Speichern</button></noscript>
+        </form>
+        <p class="muted" style="margin:0">Den Link nicht weitergeben, er zeigt deine Termine.</p>
+        <div class="inline wrap">
+          <form method="post" onsubmit="return confirm('Neuen Link erzeugen? Der alte funktioniert dann nicht mehr.')">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="cal_new">
+            <button class="btn small-btn">Neuen Link</button></form>
+          <form method="post" onsubmit="return confirm('Kalender trennen?')">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="cal_off">
+            <button class="btn small-btn danger">Trennen</button></form>
+        </div>
+      </div>
+    </details>
+    <script>
+      document.getElementById('cal-copy').addEventListener('click', function () {
+        var f = document.getElementById('cal-url'), b = this; f.select();
+        (navigator.clipboard ? navigator.clipboard.writeText(f.value) : Promise.reject()).then(
+          function () { b.textContent = 'Kopiert ✓'; }, function () { document.execCommand('copy'); b.textContent = 'Kopiert ✓'; });
+      });
+    </script>
+    {% endif %}
+  </div>
+</section>
+
 {# ---------- Profilbild ---------- #}
 <section>
   <h2>Profilbild</h2>

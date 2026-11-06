@@ -1,0 +1,22 @@
+# GitHub Dependabot: prüft jede Woche, ob es neue Versionen gibt, und legt dafür einen Pull Request an.
+# Nichts wird automatisch installiert: Du prüfst den Pull Request, klickst "Merge" und
+# spielst ihn mit ./update.sh auf den Server.
+version: 2
+updates:
+  - package-ecosystem: "pip"          # Flask, Gunicorn, Pillow aus requirements.txt
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      python-pakete:
+        update-types: ["minor", "patch"]   # kleine Updates gesammelt in einem PR
+  - package-ecosystem: "docker"       # Basis-Image python:3.12-slim im Dockerfile
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor"]   # Python 3.13 nur bewusst, nicht automatisch

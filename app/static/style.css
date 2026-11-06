@@ -344,7 +344,8 @@ select.shrink { flex: 0 0 auto; width: auto; }
 /* RWK-Onlinemelder */
 .rwk-box { margin-top: 14px; display: grid; gap: 10px; }
 .rwk-logo { display: inline-block; font-size: .65rem; font-weight: 800; letter-spacing: .05em; padding: 2px 5px; border-radius: 4px; background: var(--ink); color: var(--bg); vertical-align: middle; }
-.inline.wrap { flex-wrap: wrap; }
+.inline { display: flex; align-items: center; gap: 8px; }
+.inline.wrap { flex-wrap: wrap; max-width: none; margin: 0; padding: 0; }   /* nicht den Seitencontainer .wrap erben */
 .report { margin: 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; font: .9rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-x: auto; }
 .steps { padding-left: 20px; display: grid; gap: 6px; }
 .import-row { display: grid; gap: 8px; }
@@ -588,3 +589,8 @@ th.sel, td.sel { width: 36px; padding-right: 0; }
 .pill.job-done { background: var(--ok-soft); color: var(--green-2); }
 .pill.job-failed { background: var(--red-soft); color: var(--red); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
+.choice-line { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-weight: normal; }
+.choice-line input { width: auto; flex: none; margin-top: 4px; accent-color: var(--green-2); }
+.big-btn { width: 100%; padding: 14px 16px; font-size: 1.05rem; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.steps li { display: grid; gap: 4px; justify-items: start; }

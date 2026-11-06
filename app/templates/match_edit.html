@@ -31,6 +31,7 @@
   <label>Ort<input name="location" value="{{ m.location if m }}" placeholder="z. B. Schützenhaus"></label>
   {% if not opp_rings %}<label>Ringe Gegner <span class="muted small">(optional, auch später möglich)</span><input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m and m.opponent_score is not none }}"></label>{% endif %}
   <label>Treffpunkt &amp; Abfahrt <span class="muted small">(nur auswärts)</span><input name="meet" value="{{ m.meet if m }}" placeholder="z. B. Schützenhaus, 17:45 Uhr"></label>
+  <label class="check"><input type="checkbox" name="relegation" value="1" {{ 'checked' if m and m.relegation }}> Auf-/Abstiegskampf (Relegation) <span class="muted small">– zählt nicht zu den Einsätzen</span></label>
   <label>Beschreibung<textarea name="notes" rows="3" placeholder="z. B. 30 Minuten vorher zum Einschießen da sein">{{ m.notes if m }}</textarea></label>
   <button class="btn primary">Speichern</button>
 </form>

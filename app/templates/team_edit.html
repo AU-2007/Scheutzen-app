@@ -10,6 +10,16 @@
   <datalist id="disc">{% for d in disciplines %}<option value="{{ d }}">{% endfor %}</datalist>
   <label>Liga / Klasse<input name="league" value="{{ team.league if team }}" placeholder="z. B. Gauliga"></label>
   <div class="row2">
+    <label>Rang im Verein <span class="muted small">(1 = höchste Klasse)</span>
+      <input name="rank" type="number" min="1" max="20" inputmode="numeric" value="{{ team.rank if team and team.rank }}" placeholder="aus dem Namen"></label>
+    <label>Einsätze pro Saison
+      <select name="max_starts">
+        <option value="10" {{ 'selected' if not team or team.max_starts != 12 }}>höchstens 10</option>
+        <option value="12" {{ 'selected' if team and team.max_starts == 12 }}>höchstens 12 (Gruppe mit 7 Mannschaften)</option>
+      </select></label>
+  </div>
+  <p class="muted small" style="margin:-4px 0 0">Für die Prüfung nach RWK-Ordnung VII: Wer mehr als zweimal in einer höheren Mannschaft (kleinerer Rang, gleiche Disziplin) geschossen hat, ist dort gebunden. Ohne Eintrag gilt die Zahl im Namen („LG 1“ steht über „LG 2“).</p>
+  <div class="row2">
     <label>Saison<input name="season" value="{{ team.season if team }}" placeholder="z. B. 2026/27"></label>
     <label>Mannschafts-ID<input name="ext_id" value="{{ team.ext_id if team }}" placeholder="z. B. vom Verband"></label>
   </div>

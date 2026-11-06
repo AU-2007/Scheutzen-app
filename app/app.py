@@ -336,6 +336,9 @@ MIGRATIONS = [
     ("matches", "lanes", "INTEGER"),
     ("users", "cal_token", "TEXT"),                        # geheimer Schlüssel fürs Kalender-Abo, NULL = aus
     ("users", "cal_scope", "TEXT NOT NULL DEFAULT 'zusage'"),  # zusage | alle
+    ("teams", "rank", "INTEGER"),                         # Rang im Verein (1 = höchste Klasse), leer = aus dem Namen
+    ("teams", "max_starts", "INTEGER NOT NULL DEFAULT 10"),  # Einsätze pro Saison (RWK VII.4: 10, bei 7er-Gruppen 12)
+    ("matches", "relegation", "INTEGER NOT NULL DEFAULT 0"),  # Auf-/Abstiegskampf (zählt nicht, RWK VII.4/6)
     ("users", "cal_seen", "TEXT"),                         # letzter Abruf des Kalender-Abos
     ("users", "cal_client", "TEXT NOT NULL DEFAULT ''"),  # wer abgerufen hat (Google, Apple, Outlook …)                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
     ("lineup", "lane", "INTEGER"),                         # Stand
@@ -2179,6 +2182,9 @@ def team_edit(tid=None):
     editors = {r["user_id"] for r in q("SELECT user_id FROM team_editors WHERE team_id=?", (tid,))} if tid else set()
     if request.method == "POST":
         f = {k: request.form.get(k, "").strip() for k in ("name", "discipline", "league", "season", "rwk_url", "rwk_name", "ext_id")}
+        rank = request.form.get("rank", type=int)
+        rank = rank if rank and 1 <= rank <= 20 else None
+        max_starts = 12 if request.form.get("max_starts") == "12" else 10
         if f["rwk_url"] and not f["rwk_url"].startswith(("https://", "http://")):
             f["rwk_url"] = "https://" + f["rwk_url"]
         if is_admin:
@@ -2196,12 +2202,12 @@ def team_edit(tid=None):
         else:
             if team:
                 ex("""UPDATE teams SET name=?, discipline=?, league=?, season=?, leader_id=?, rwk_url=?, rwk_name=?,
-                      ext_id=? WHERE id=?""", (f["name"], f["discipline"], f["league"], f["season"], leader,
-                                               f["rwk_url"], f["rwk_name"], f["ext_id"], tid))
+                      ext_id=?, rank=?, max_starts=? WHERE id=?""", (f["name"], f["discipline"], f["league"], f["season"], leader,
+                                               f["rwk_url"], f["rwk_name"], f["ext_id"], rank, max_starts, tid))
             else:
-                tid = ex("""INSERT INTO teams (name, discipline, league, season, leader_id, rwk_url, rwk_name, ext_id)
-                            VALUES (?,?,?,?,?,?,?,?)""", (f["name"], f["discipline"], f["league"], f["season"],
-                                                          leader, f["rwk_url"], f["rwk_name"], f["ext_id"]))
+                tid = ex("""INSERT INTO teams (name, discipline, league, season, leader_id, rwk_url, rwk_name, ext_id, rank, max_starts)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)""", (f["name"], f["discipline"], f["league"], f["season"],
+                                                          leader, f["rwk_url"], f["rwk_name"], f["ext_id"], rank, max_starts))
             if is_admin:
                 conn = db()
                 conn.execute("DELETE FROM team_editors WHERE team_id=?", (tid,))
@@ -2210,7 +2216,7 @@ def team_edit(tid=None):
                 conn.commit()
             flash("Mannschaft gespeichert.", "ok")
             return redirect(url_for("team", tid=tid))
-        team = dict(team or {}, **f, leader_id=leader)
+        team = dict(team or {}, **f, leader_id=leader, rank=rank, max_starts=max_starts)
     return render_template("team_edit.html", team=team, leaders=leaders, all_users=all_users,
                            editors=editors, is_admin=is_admin, disciplines=DISCIPLINES)
 
@@ -2245,7 +2251,8 @@ def team(tid):
     candidates = [u for u in q("SELECT id, name FROM users WHERE active=1 ORDER BY name") if u["id"] not in member_ids]
     editors = q("""SELECT u.name FROM team_editors e JOIN users u ON u.id=e.user_id
                    WHERE e.team_id=? ORDER BY u.name""", (tid,))
-    return render_template("team.html", t=t, members=members, matches=matches, record=record,
+    rwk = rwk_check(t, date.today().isoformat(), [m["id"] for m in members]) if can_manage(t) else {}
+    return render_template("team.html", t=t, members=members, matches=matches, record=record, rwk=rwk,
                            candidates=candidates, manage=can_manage(t), editors=editors)
 
 
@@ -2295,6 +2302,7 @@ def match_edit(tid=None, mid=None):
         f = {k: request.form.get(k, "").strip() for k in ("time", "opponent", "location", "notes", "meet")}
         d = parse_date(request.form.get("date"))
         home = 1 if request.form.get("home") == "1" else 0
+        relegation = 1 if request.form.get("relegation") == "1" else 0
         opp = parse_num(request.form.get("opponent_score"))
         ot = q("""SELECT ot.*, c.name club_name, c.location club_loc FROM opp_teams ot JOIN opp_clubs c ON c.id=ot.club_id
                   WHERE ot.id=?""", (request.form.get("opp_team_id", type=int),), one=True)
@@ -2310,15 +2318,16 @@ def match_edit(tid=None, mid=None):
                 if has_opp_rings(mid):   # Summe kommt aus den Gegnerschützen
                     opp = m["opponent_score"]
                 ex("""UPDATE matches SET date=?, time=?, opponent=?, home=?, location=?, opponent_score=?,
-                      notes=?, meet=?, opp_team_id=? WHERE id=?""",
-                   (d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id, mid))
+                      notes=?, meet=?, opp_team_id=?, relegation=? WHERE id=?""",
+                   (d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id, relegation, mid))
             else:
-                mid = ex("""INSERT INTO matches (team_id, date, time, opponent, home, location, opponent_score, notes, meet, opp_team_id)
-                            VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                         (t["id"], d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id))
+                mid = ex("""INSERT INTO matches (team_id, date, time, opponent, home, location, opponent_score, notes, meet,
+                            opp_team_id, relegation) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                         (t["id"], d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id, relegation))
             flash("Wettkampf gespeichert.", "ok")
             return redirect(url_for("match", mid=mid))
-        m = dict(m or {}, **f, date=request.form.get("date"), home=home, opponent_score=opp, opp_team_id=opp_team_id)
+        m = dict(m or {}, **f, date=request.form.get("date"), home=home, opponent_score=opp, opp_team_id=opp_team_id,
+                 relegation=relegation)
     return render_template("match_edit.html", m=m, t=t, opponents=opponent_choices(),
                            opp_rings=bool(mid and has_opp_rings(mid)))
 
@@ -2468,7 +2477,9 @@ def match(mid):
         sum(1 for r in opp_rows if r["lane"] and r["relay"])
     plan = {"area": area, "lanes": match_lanes(m, area), "placed": placed,
             "count": sum(1 for r in rows if r["in_lineup"]) + len(opp_rows)}
-    return render_template("match.html", m=m, t=t, rows=rows, total=total, moves=moves, open_move=open_move,
+    rwk = match_rwk_check(m, t, [r["id"] for r in rows]) if can_manage(t) else {}
+    return render_template("match.html", m=m, t=t, rows=rows, total=total, moves=moves, open_move=open_move, rwk=rwk,
+                           rwk_lined=[(r["name"], rwk[r["id"]]["problems"]) for r in rows if r["in_lineup"] and rwk.get(r["id"], {}).get("problems")],
                            opp_rows=opp_rows, opp_team=opp_team, opp_pool=opp_pool, plan=plan,
                            opp_sum=sum(r["rings"] for r in opp_rows if r["rings"] is not None),
                            opp_has_rings=any(r["rings"] is not None for r in opp_rows),
@@ -2529,6 +2540,73 @@ def match_ride(mid):
     return redirect(url_for("match", mid=mid) + "#fahrt")
 
 
+# ---------------------------------------------------------------- RWK-Regeln: Auswechseln (Abschnitt VII)
+# VII.2/3: Wer mehr als zweimal in höheren Mannschaften geschossen hat, ist an die unterste dieser höheren
+#          Klassen gebunden (Einsätze in verschiedenen höheren Klassen werden zusammengezählt).
+# VII.4:   Höchstens 10 Wettkämpfe pro Saison (bei 7er-Gruppen 12), Auf-/Abstiegskämpfe zählen nicht.
+# VII.5:   Bei Verstoß wird das Ergebnis des Schützen für diesen Wettkampf gestrichen.
+def team_rank(t):
+    """Rang im Verein: eingetragen, sonst die Zahl im Namen ('LG 2' -> 2), sonst ganz unten."""
+    if t["rank"]:
+        return t["rank"]
+    m = re.search(r"(\d+)(?!.*\d)", t["name"] or "")
+    return int(m.group(1)) if m and int(m.group(1)) < 50 else 99
+
+
+def season_of(t, d):
+    """Saison der Mannschaft; ohne Eintrag aus dem Datum (August bis Juli)."""
+    if (t["season"] or "").strip():
+        return t["season"].strip()
+    y, mo = int(d[:4]), int(d[5:7])
+    y = y if mo >= 8 else y - 1
+    return f"{y}/{(y + 1) % 100:02d}"
+
+
+def rwk_starts(team, until, uids, exclude_mid=None, until_time="", until_id=None):
+    """Einsätze der Schützen in der Saison und Disziplin der Mannschaft vor einem Zeitpunkt.
+    Gibt {uid: [(team-row, match-id), …]}."""
+    if not uids:
+        return {}
+    season = season_of(team, until)
+    marks = ",".join("?" * len(uids))
+    rows = q(f"""SELECT l.user_id, m.id mid, m.date, m.time, t.id tid, t.name, t.season, t.rank
+                 FROM lineup l JOIN matches m ON m.id=l.match_id JOIN teams t ON t.id=m.team_id
+                 WHERE l.user_id IN ({marks}) AND m.relegation=0 AND t.discipline=? AND m.id<>?""",
+             list(uids) + [team["discipline"], exclude_mid or 0])
+    out = {u: [] for u in uids}
+    for r in rows:
+        before = (r["date"], r["time"] or "", r["mid"]) < (until, until_time or "", until_id or 10 ** 12)
+        if before and season_of(r, r["date"]) == season:
+            out[r["user_id"]].append(r)
+    return out
+
+
+def rwk_check(team, until, uids, exclude_mid=None, until_time="", until_id=None):
+    """Prüft, ob die Schützen (noch) für diese Mannschaft schießen dürfen.
+    Gibt {uid: {"starts", "limit", "bound": Mannschaftsname|None, "problems": [...]}}."""
+    limit = team["max_starts"] or 10
+    my_rank = team_rank(team)
+    out = {}
+    for uid, starts in rwk_starts(team, until, uids, exclude_mid, until_time, until_id).items():
+        higher = [r for r in starts if team_rank(r) < my_rank]
+        info = {"starts": len(starts), "limit": limit, "bound": None, "problems": []}
+        if len(higher) >= 3:
+            lowest = max(higher, key=team_rank)   # unterste der höheren Klassen (VII.3)
+            info["bound"] = lowest["name"]
+            info["problems"].append(f"an {lowest['name']} gebunden ({len(higher)}× höher geschossen)")
+        if len(starts) >= limit:
+            info["problems"].append(f"schon {len(starts)} Einsätze, mehr als {limit} sind nicht erlaubt")
+        out[uid] = info
+    return out
+
+
+def match_rwk_check(m, t, uids):
+    """Regelprüfung für einen Wettkampf (Auf-/Abstiegskämpfe sind ausgenommen)."""
+    if m["relegation"]:
+        return {}
+    return rwk_check(t, m["date"], uids, exclude_mid=m["id"], until_time=m["time"], until_id=m["id"])
+
+
 @app.route("/wettkampf/<int:mid>/aufstellung", methods=["POST"])
 @login_required
 def match_lineup(mid):
@@ -2556,6 +2634,11 @@ def match_lineup(mid):
     sync_opp_score(conn, mid)
     conn.commit()
     flash("Aufstellung und Ergebnisse gespeichert.", "ok")
+    bad = {uid: i for uid, i in match_rwk_check(m, t, chosen).items() if i["problems"]}
+    if bad:
+        names = {r["id"]: r["name"] for r in q(f"SELECT id, name FROM users WHERE id IN ({','.join('?' * len(bad))})", list(bad))}
+        flash("Achtung, RWK-Ordnung VII: " + "; ".join(f"{names.get(u, '?')} {', '.join(i['problems'])}" for u, i in bad.items())
+              + ". Bei einem Verstoß wird das Ergebnis dieses Schützen gestrichen (VII.5).", "error")
     return redirect(url_for("match", mid=mid))
 
 

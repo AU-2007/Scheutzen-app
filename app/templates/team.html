@@ -60,7 +60,7 @@
   <h2>Schützen</h2>
   <div class="card flush">
     <table>
-      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th></th>{% endif %}</tr></thead>
+      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th class="num" title="Einsätze in der Saison (alle Mannschaften dieser Disziplin)">Saison</th><th></th>{% endif %}</tr></thead>
       <tbody>
       {% for s in members %}
         <tr>
@@ -75,7 +75,8 @@
           <td class="num">{{ s.n }}</td>
           <td class="num strong">{{ s.avg|ringe if s.avg is not none else '–' }}</td>
           <td class="num">{{ s.best|ringe }}</td>
-          {% if manage %}
+          {% if manage %}{% set ri = rwk.get(s.id) %}
+          <td class="num small">{% if ri %}{{ ri.starts }}/{{ ri.limit }}{% for p in ri.problems %}<span class="bad-text rwk-warn">⚠ {{ p }}</span>{% endfor %}{% endif %}</td>
           <td class="num">
             <form method="post" action="{{ url_for('team_remove_member', tid=t.id, uid=s.id) }}" onsubmit='return confirm({{ (s.name ~ " aus der Mannschaft entfernen?")|tojson }})'>
               <input type="hidden" name="csrf" value="{{ csrf }}"><button class="x" title="Entfernen">✕</button>
@@ -84,7 +85,7 @@
           {% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="5" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
+        <tr><td colspan="6" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
       {% endfor %}
       </tbody>
     </table>

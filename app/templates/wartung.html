@@ -9,19 +9,7 @@
   <pre class="report" style="margin-top:6px">cd /opt/schuetzenverein && sudo bash scripts/einrichten.sh</pre></div>
 {% endif %}
 
-{# ---------- Laufender / gewählter Auftrag ---------- #}
-{% if show %}
-<section id="auftrag">
-  <h2>{{ ACTIONS[show.action][0] if show.action in ACTIONS else 'Auftrag' }}{% if show.param %} <span class="muted small mono">{{ show.param[:12] if show.action == 'rollback' else show.param }}</span>{% endif %}</h2>
-  <div class="card stack job-live" data-job="{{ show.id }}" data-state="{{ show.state }}">
-    <p style="margin:0"><span class="pill job-{{ show.state }}" id="job-state">{{ STATES.get(show.state, show.state) }}</span>
-      <span class="muted small" id="job-meta">{% if show.by %}von {{ show.by }} · {% endif %}{% if show.started %}gestartet {{ show.started|seit }}{% else %}wartet auf den Server{% endif %}{% if show.ended %} · fertig {{ show.ended|seit }}{% endif %}</span></p>
-    <p class="small muted" id="job-hint" style="margin:0" {{ 'hidden' if show.state not in ('queued', 'running') }}>Die Seite aktualisiert sich selbst. Bei Update, Neubau, Zurückrollen und Einspielen startet die App kurz neu, die Anzeige ist dann für etwa eine Minute weg.</p>
-    <p class="small bad-text" id="job-stuck" style="margin:0" hidden>Der Server hat den Auftrag noch nicht angenommen. Läuft der Wartungsdienst? Auf dem Server prüfen: <code>systemctl status schuetzen-jobs.path</code></p>
-    <pre class="report job-log" id="job-log">{{ show.log or 'Noch keine Ausgabe.' }}</pre>
-  </div>
-</section>
-{% endif %}
+
 
 {# ---------- Zustand auf einen Blick ---------- #}
 {% set bk_old = not maint.last_backup or (maint.backup_age_h is not none and maint.backup_age_h > 36) %}
@@ -39,6 +27,20 @@
     <span>Neustart</span><b>{{ 'nötig' if maint.reboot_required else 'nicht nötig' }}</b>
     <small>{% if maint.reboot_required and maint.reboot_pkgs %}wegen {{ maint.reboot_pkgs|join(', ') }}{% elif maint.reboot_required %}sonst automatisch 04:30{% else %}App läuft seit {{ server.uptime }}{% endif %}</small></div>
 </div>
+{# ---------- Laufender / gewählter Auftrag ---------- #}
+{% if show %}
+<section id="auftrag">
+  <h2 style="margin-top:4px">{{ ACTIONS[show.action][0] if show.action in ACTIONS else 'Auftrag' }}{% if show.param %} <span class="muted small mono">{{ show.param[:12] if show.action == 'rollback' else show.param }}</span>{% endif %}</h2>
+  <div class="card stack job-live" data-job="{{ show.id }}" data-state="{{ show.state }}">
+    <p style="margin:0"><span class="pill job-{{ show.state }}" id="job-state">{{ STATES.get(show.state, show.state) }}</span>
+      <span class="muted small" id="job-meta">{% if show.by %}von {{ show.by }} · {% endif %}{% if show.started %}gestartet {{ show.started|seit }}{% else %}wartet auf den Server{% endif %}{% if show.ended %} · fertig {{ show.ended|seit }}{% endif %}</span></p>
+    <p class="small muted" id="job-hint" style="margin:0" {{ 'hidden' if show.state not in ('queued', 'running') }}>Die Seite aktualisiert sich selbst. Bei Update, Neubau, Zurückrollen und Einspielen startet die App kurz neu, die Anzeige ist dann für etwa eine Minute weg.</p>
+    <p class="small bad-text" id="job-stuck" style="margin:0" hidden>Der Server hat den Auftrag noch nicht angenommen. Läuft der Wartungsdienst? Auf dem Server prüfen: <code>systemctl status schuetzen-jobs.path</code></p>
+    <pre class="report job-log" id="job-log">{{ show.log or 'Noch keine Ausgabe.' }}</pre>
+  </div>
+</section>
+{% endif %}
+
 {% if warnings %}
 <div class="flash info hint-box"><b>{{ warnings|length }} Hinweis{{ 'e' if warnings|length != 1 }}</b>
   <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>

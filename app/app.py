@@ -8,6 +8,7 @@ Zusätzlich kann der Admin pro Mannschaft weitere Bearbeiter eintragen,
 die dieselben Rechte wie der Mannschaftsführer dieser Mannschaft haben.
 """
 import calendar
+import json
 import os
 import re
 import secrets
@@ -1059,6 +1060,38 @@ def avatar(uid):
         abort(404)
     resp = send_from_directory(AVATAR_DIR, f"{uid}.jpg", mimetype="image/jpeg")
     resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+# ---------------------------------------------------------------- App-Symbol / Startbildschirm
+# Ohne Login erreichbar: Browser und Handys holen Symbol und Manifest ohne Sitzungs-Cookie.
+ICON_DIR = os.path.join(app.static_folder, "icons")
+
+
+@app.route("/favicon.ico")
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+def root_icon():
+    from flask import send_from_directory
+    name = "favicon.ico" if request.path == "/favicon.ico" else "apple-touch-icon.png"
+    resp = send_from_directory(ICON_DIR, name)
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    name = setting("club_name") or VEREIN_NAME
+    icon = lambda f, size, purpose="any": {  # noqa: E731
+        "src": url_for("static", filename=f"icons/{f}"), "sizes": size, "type": "image/png", "purpose": purpose}
+    resp = app.response_class(json.dumps({
+        "name": f"{name} · Mannschaften", "short_name": "Mannschaften",
+        "start_url": url_for("index"), "scope": "/", "display": "standalone",
+        "background_color": "#ffffff", "theme_color": ACCENTS["gruen"][1], "lang": "de",
+        "icons": [icon("icon-192.png", "192x192"), icon("icon-512.png", "512x512"),
+                  icon("icon-maskable-512.png", "512x512", "maskable")],
+    }, ensure_ascii=False), mimetype="application/manifest+json")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
 
 

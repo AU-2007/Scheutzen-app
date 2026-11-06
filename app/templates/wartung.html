@@ -30,15 +30,16 @@
 <section>
   <h2>Aktionen</h2>
   <div class="card stack">
-    {% for key in ('backup', 'pruefen', 'wartung', 'update', 'rebuild', 'reboot') %}
+    {% for key in ('backup', 'pruefen', 'linux', 'wartung', 'update', 'rebuild', 'reboot') %}
     <form method="post" action="{{ url_for('admin_job_create') }}" class="job-action"
           {% if key in ('wartung', 'update', 'rebuild', 'reboot') %}onsubmit='return confirm({{ (ACTIONS[key][0] ~ "? Die App ist dabei kurz nicht erreichbar.")|tojson }})'{% endif %}>
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="action" value="{{ key }}">
       <div><b>{{ ACTIONS[key][0] }}</b><br><span class="muted small">{{ ACTIONS[key][1] }}
         {% if key == 'update' and maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} verfügbar.</b>{% endif %}
+        {% if key == 'linux' and maint.pending_updates %}<b>{{ maint.pending_updates }} Update{{ 's' if maint.pending_updates != 1 }} bereit{% if maint.pending_security %}, davon {{ maint.pending_security }} Sicherheit{% endif %}.</b>{% endif %}
         {% if key == 'reboot' and maint.reboot_required %}<b>Neustart nötig{% if maint.reboot_pkgs %} ({{ maint.reboot_pkgs|join(', ') }}){% endif %}.</b> Sonst automatisch um 04:30.{% endif %}</span></div>
-      <button class="btn {{ 'primary' if (key == 'update' and maint.app_behind) or (key == 'reboot' and maint.reboot_required) else '' }}" {{ 'disabled' if active }}>{{ 'Neu starten' if key == 'reboot' else 'Starten' }}</button>
+      <button class="btn {{ 'primary' if (key == 'update' and maint.app_behind) or (key == 'reboot' and maint.reboot_required) or (key == 'linux' and maint.pending_updates) else '' }}" {{ 'disabled' if active }}>{{ 'Neu starten' if key == 'reboot' else 'Starten' }}</button>
     </form>
     {% endfor %}
     {% if active %}<p class="small muted" style="margin:0">Es läuft gerade ein Auftrag. Neue Aufträge gehen erst danach.</p>{% endif %}
@@ -57,7 +58,7 @@
       <dd>{% if maint.last_backup %}<span class="{{ 'bad-text' if maint.backup_age_h and maint.backup_age_h > 36 }}">{{ maint.last_backup|seit }}</span>
         <span class="muted small">· {{ maint.last_backup_size }}</span>{% else %}<span class="bad-text">noch keine</span>{% endif %}</dd>
       <dt>Prüfung</dt>
-      <dd>{{ maint.checked_at|seit }}{% if maint.pending_updates %} <span class="muted small">· {{ maint.pending_updates }} Linux-Updates{% if maint.pending_security %}, <span class="bad-text">{{ maint.pending_security }} Sicherheit</span>{% endif %}</span>{% endif %}</dd>
+      <dd>{{ maint.checked_at|seit }}{% if maint.pending_updates %} <span class="muted small">· {{ maint.pending_updates }} Linux-Updates{% if maint.pending_security %}, <span class="bad-text">{{ maint.pending_security }} Sicherheit</span>{% endif %}</span>{% endif %}{% if maint.pending_phased %} <span class="muted small">· {{ maint.pending_phased }} gestaffelt (kommen von selbst)</span>{% endif %}</dd>
       <dt>Wartung</dt>
       <dd>{{ maint.last_maintenance|seit }}{% if maint.problems %} <span class="bad-text small">· {{ maint.problems|join('; ') }}</span>{% endif %}</dd>
       <dt>App-Update</dt>

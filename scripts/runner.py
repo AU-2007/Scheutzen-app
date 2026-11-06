@@ -52,6 +52,8 @@ def build_command(action, param):
         return [sh("backup.sh"), "manuell"], None
     if action == "pruefen":
         return [sh("pruefen.sh")], None
+    if action == "linux":
+        return [sh("linux-updates.sh")], None
     if action == "wartung":
         return [sh("wartung.sh")], None
     if action == "update":

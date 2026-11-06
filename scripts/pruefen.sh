@@ -8,6 +8,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq || warn "apt-get update fehlgeschlagen"
 listing="$(apt list --upgradable 2>/dev/null | tail -n +2 || true)"
+# was full-upgrade wirklich installieren würde (ohne gestaffelte Ubuntu-Updates)
+installable="$(apt-get -s -o Debug::NoLocking=1 full-upgrade 2>/dev/null | awk '/^Inst /{print $2}' || true)"
 
 # App: neue Version auf GitHub?
 behind=0; commits=""
@@ -20,11 +22,12 @@ fi
 outdated="$(timeout 90 docker exec -e PIP_DISABLE_PIP_VERSION_CHECK=1 -e PIP_NO_CACHE_DIR=1 schuetzen-mannschaften \
   python -m pip list --outdated --format=json 2>/dev/null || true)"
 
-OUTDATED="$outdated" LISTING="$listing" COMMITS="$commits" python3 - "$STATUS_FILE" "$behind" <<'PY'
+INSTALLABLE="$installable" OUTDATED="$outdated" LISTING="$listing" COMMITS="$commits" python3 - "$STATUS_FILE" "$behind" <<'PY'
 import json, os, sys, datetime
 path, behind = sys.argv[1], int(sys.argv[2] or 0)
 listing = os.environ.get("LISTING", "")
 commits = os.environ.get("COMMITS", "")
+installable = set(os.environ.get("INSTALLABLE", "").split())
 pkgs = []
 for line in listing.splitlines():
     # Beispiel: openssl/noble-updates,noble-security 3.0.13-0ubuntu3.5 amd64 [upgradable from: 3.0.13-0ubuntu3.4]
@@ -34,16 +37,17 @@ for line in listing.splitlines():
     parts = rest.split()
     old = line.rsplit("from: ", 1)[-1].rstrip("]") if "from: " in line else ""
     pkgs.append({"name": name, "new": parts[1] if len(parts) > 1 else "", "old": old,
-                 "security": "-security" in parts[0]})
-pkgs.sort(key=lambda p: (not p["security"], p["name"]))
+                 "security": "-security" in parts[0], "phased": name not in installable})
+pkgs.sort(key=lambda p: (p["phased"], not p["security"], p["name"]))
 try:
     data = json.load(open(path))
 except Exception:
     data = {}
 data.update({
     "checked_at": datetime.datetime.now().isoformat(timespec="seconds"),
-    "pending_updates": len(pkgs),
-    "pending_security": sum(p["security"] for p in pkgs),
+    "pending_updates": sum(not p["phased"] for p in pkgs),
+    "pending_security": sum(p["security"] and not p["phased"] for p in pkgs),
+    "pending_phased": sum(p["phased"] for p in pkgs),
     "pending_list": pkgs[:80],
     "reboot_required": os.path.exists("/var/run/reboot-required"),
     "reboot_pkgs": open("/var/run/reboot-required.pkgs").read().split() if os.path.exists("/var/run/reboot-required.pkgs") else [],

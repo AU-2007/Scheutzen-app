@@ -159,6 +159,7 @@ Das richtet ein:
 | `./scripts/status.sh` | Überblick: App, letzte Sicherung, anstehende Updates, Neustart nötig, Firewall, fail2ban, SSH |
 | `./scripts/backup.sh` | Sicherung jetzt (Datenbank, Profilbilder, `.env`) nach `BACKUP_DIR` (Standard `/opt/backup`) |
 | `./scripts/restore.sh` | Sicherungen anzeigen; mit Dateiname zurückspielen (sichert vorher den aktuellen Stand) |
+| `./scripts/linux-updates.sh` | Linux-Updates jetzt installieren (`apt full-upgrade`, auch neue Kernel), alte Pakete aufräumen. Gestaffelte Ubuntu-Updates kommen von selbst nach. |
 | `./scripts/pruefen.sh` | Prüft auf Linux-Paket-Updates und neue App-Versionen, ohne etwas zu installieren |
 | `./scripts/wartung.sh` | Alles auf einmal: Sicherung, Linux-Updates, App-Image neu bauen, aufräumen, Gesundheitscheck |
 
@@ -169,7 +170,7 @@ Die **Admin-Übersicht** der App zeigt unter *Wartung & Updates* die letzte Sich
 Admins finden unter **Menü → Wartung** (`/admin/wartung`):
 - **Status** aller Skripte und Zeitpläne (zuletzt / nächstes Mal), letzte Sicherung, Prüfung, Wartung, Update, Neubau
 - **Versionen**: Python, Flask, Werkzeug, Jinja2, gunicorn, Pillow usw., Container- und Server-System, Kernel, Docker, cloudflared. Neuere Versionen werden markiert (Prüfung täglich 06:30).
-- **Knöpfe**: Sicherung jetzt, Auf Updates prüfen, Wartung jetzt, App aktualisieren, Container neu bauen. Die Ausgabe läuft live mit.
+- **Knöpfe**: Sicherung jetzt, Auf Updates prüfen, Linux-Updates installieren, Wartung jetzt, App aktualisieren, Container neu bauen. Die Ausgabe läuft live mit.
 - **Zurückrollen** auf eine der letzten 15 App-Versionen (Bestätigung „ZURÜCK“)
 - **Sicherung einspielen** (Bestätigung „EINSPIELEN“, der aktuelle Stand wird vorher gesichert)
 

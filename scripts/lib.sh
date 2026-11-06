@@ -77,7 +77,7 @@ wait_healthy() {
 # Pakete mit ausstehenden Updates zählen (nur Debian/Ubuntu)
 pending_updates() {
   if command -v apt-get >/dev/null; then
-    apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep -c '^Inst ' || true
+    apt-get -s -o Debug::NoLocking=1 full-upgrade 2>/dev/null | grep -c '^Inst ' || true
   else
     echo 0
   fi

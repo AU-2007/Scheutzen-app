@@ -13,11 +13,7 @@ info "1/6 Sicherung"
 "$(dirname "$0")/backup.sh" neubau || problems+=("Sicherung fehlgeschlagen")
 
 info "2/6 Linux-Updates"
-if apt-get update -qq && apt-get -y -qq -o Dpkg::Options::=--force-confold upgrade; then
-  set_status last_os_update=now
-else
-  problems+=("Linux-Updates fehlgeschlagen")
-fi
+"$(dirname "$0")/linux-updates.sh" || problems+=("Linux-Updates fehlgeschlagen")
 
 info "3/6 App-Image mit aktuellen Sicherheitsupdates neu bauen"
 if compose build --pull -q && compose up -d; then

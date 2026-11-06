@@ -1745,6 +1745,7 @@ JOB_ID_RE = re.compile(r"^\d{14}-[0-9a-f]{8}$")
 JOB_ACTIONS = {
     "backup":   ("Sicherung jetzt", "Legt sofort eine Sicherung der Daten an (die letzten 5 manuellen bleiben)."),
     "pruefen":  ("Auf Updates prüfen", "Sucht nach Linux-Updates, neuen App-Versionen und neueren Python-Modulen. Installiert nichts."),
+    "linux":    ("Linux-Updates installieren", "Installiert alle Linux-Updates (wie sudo apt full-upgrade), auch neue Kernel. Die App läuft weiter."),
     "wartung":  ("Wartung jetzt", "Sicherung, alle Linux-Updates installieren, aufräumen. Wie sonntags um 04:00."),
     "update":   ("App aktualisieren", "Holt die neue Version von GitHub und baut den Container neu. Vorher wird gesichert."),
     "rebuild":  ("Container neu bauen", "Baut den Container auch ohne neue App-Version neu (aktuelle Sicherheitsupdates im Image). Vorher wird gesichert."),

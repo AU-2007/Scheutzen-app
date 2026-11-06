@@ -132,17 +132,17 @@
     {% endif %}
     {% if maint.pending_list %}
     <details class="upd-list">
-      <summary class="small">Anstehende Paket-Updates anzeigen ({{ maint.pending_updates }})</summary>
+      <summary class="small">Anstehende Paket-Updates anzeigen ({{ maint.pending_list|length }})</summary>
       <div class="flush" style="overflow-x:auto">
         <table class="log">
           <thead><tr><th>Paket</th><th class="hide-sm">installiert</th><th>neu</th></tr></thead>
           <tbody>
-          {% for p in maint.pending_list %}<tr><td class="mono small">{{ p.name }}{% if p.security %} <span class="pill av-nein">Sicherheit</span>{% endif %}</td>
+          {% for p in maint.pending_list %}<tr><td class="mono small">{{ p.name }}{% if p.security %} <span class="pill av-nein">Sicherheit</span>{% endif %}{% if p.phased %} <span class="pill open" title="Ubuntu liefert das Update gestaffelt aus, es kommt in den nächsten Tagen von selbst">gestaffelt</span>{% endif %}</td>
             <td class="hide-sm small muted mono">{{ p.old }}</td><td class="small mono">{{ p.new }}</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>
-      <p class="small muted" style="margin:6px 0 0">Sicherheitsupdates installiert der Server jede Nacht selbst, alle anderen bei der Wartung am Sonntag. Sofort: <a href="{{ url_for('admin_maintenance') }}">Wartung → Wartung jetzt</a></p>
+      <p class="small muted" style="margin:6px 0 0">Sicherheitsupdates installiert der Server jede Nacht selbst, alle anderen bei der Wartung am Sonntag. Sofort: <a href="{{ url_for('admin_maintenance') }}">Wartung → Linux-Updates installieren</a>{% if maint.pending_phased %}. „Gestaffelt“: Ubuntu verteilt das Update nach und nach, es kommt von selbst.{% endif %}</p>
     </details>
     {% endif %}
   </div>

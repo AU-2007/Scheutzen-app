@@ -56,6 +56,12 @@
       </div>
       <p class="muted small" style="margin:0">Mit Google verbunden erscheint es auch auf Samsung- und Android-Handys mit demselben Google-Konto.</p>
       {% endif %}
+    {% if me.cal_seen %}
+    <p class="small" style="margin:0"><span class="pill av-ja">verbunden</span> Zuletzt abgerufen {{ me.cal_seen|seit }} von {{ me.cal_client or 'Kalender-App' }}.</p>
+    {% else %}
+    <p class="small" style="margin:0"><span class="pill av-vielleicht">noch nicht abgerufen</span> Dein Kalender hat den Link noch nie geholt.
+      Google braucht dafür manchmal bis zu einigen Stunden. Steht hier auch danach noch nichts, blockiert etwas den Abruf (z. B. der Bot-Schutz von Cloudflare, siehe Anleitung beim Admin).</p>
+    {% endif %}
     <details class="small">
       <summary>Weitere Möglichkeiten &amp; Einstellungen</summary>
       <div class="stack" style="margin-top:10px">

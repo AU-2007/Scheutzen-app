@@ -322,7 +322,9 @@ MIGRATIONS = [
     ("matches", "area", "TEXT NOT NULL DEFAULT ''"),       # LG | KK | '' = aus Disziplin der Mannschaft
     ("matches", "lanes", "INTEGER"),
     ("users", "cal_token", "TEXT"),                        # geheimer Schlüssel fürs Kalender-Abo, NULL = aus
-    ("users", "cal_scope", "TEXT NOT NULL DEFAULT 'zusage'"),  # zusage | alle                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
+    ("users", "cal_scope", "TEXT NOT NULL DEFAULT 'zusage'"),  # zusage | alle
+    ("users", "cal_seen", "TEXT"),                         # letzter Abruf des Kalender-Abos
+    ("users", "cal_client", "TEXT NOT NULL DEFAULT ''"),  # wer abgerufen hat (Google, Apple, Outlook …)                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
     ("lineup", "lane", "INTEGER"),                         # Stand
     ("lineup", "relay", "INTEGER"),                        # Durchgang
     ("lineup", "pos", "INTEGER NOT NULL DEFAULT 0"),       # Reihenfolge / Paarung
@@ -983,6 +985,16 @@ def training_ics(slot_id, iso):
     return single_event(f"training-{slot_id}-{iso}")
 
 
+def calendar_client(ua):
+    """Wer hat das Abo abgerufen? Nur grob, für die Anzeige im Profil."""
+    for key, name in (("Google", "Google Kalender"), ("iOS", "iPhone/iPad"), ("CalendarAgent", "Mac"),
+                      ("dataaccessd", "iPhone/iPad"), ("Microsoft", "Outlook"), ("Outlook", "Outlook"),
+                      ("ICSx", "ICSx⁵"), ("Thunderbird", "Thunderbird"), ("Mozilla", "Browser")):
+        if key.lower() in ua.lower():
+            return name
+    return "Kalender-App"
+
+
 @app.route("/kalender/<token>.ics")
 def calendar_feed(token):
     """Öffentlich erreichbar, aber nur mit dem geheimen Schlüssel. Keine Anmeldung nötig,
@@ -992,6 +1004,14 @@ def calendar_feed(token):
     u = q("SELECT * FROM users WHERE cal_token=? AND active=1", (token,), one=True)
     if not u:
         abort(404)
+    # Abruf merken (höchstens alle 5 Minuten schreiben), damit man im Profil sieht, ob der Kalender ankommt
+    now = datetime.now()
+    if not u["cal_seen"] or u["cal_seen"] < (now - timedelta(minutes=5)).isoformat(timespec="seconds"):
+        try:
+            ex("UPDATE users SET cal_seen=?, cal_client=? WHERE id=?",
+               (now.isoformat(timespec="seconds"), calendar_client(request.headers.get("User-Agent", "")), u["id"]))
+        except sqlite3.Error:
+            pass
     club = setting("club_name") or VEREIN_NAME
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Schuetzenverein//Mannschaften//DE", "CALSCALE:GREGORIAN",
              "METHOD:PUBLISH", "X-WR-CALNAME:" + ics_text(f"{club} – {u['name']}"), "X-WR-TIMEZONE:Europe/Berlin",

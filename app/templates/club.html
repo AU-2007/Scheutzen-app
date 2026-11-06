@@ -8,6 +8,9 @@
   {% for k, label in FIELDS.items() %}
   <label>{{ label }}<input name="{{ k }}" value="{{ values[k] }}" {{ 'required' if k == 'club_name' }}></label>
   {% endfor %}
+  <label>Namensformat <span class="muted small">(wie Namen im Verein geschrieben werden)</span>
+    <select name="name_order">{% for k, label in NAME_ORDERS.items() %}<option value="{{ k }}" {{ 'selected' if values.name_order == k }}>{{ label }}</option>{% endfor %}</select></label>
+  <p class="muted small" style="margin:-6px 0 0">Danach richten sich die Begrüßung, der Import (Spalten Vorname/Nachname) und die DISAG-Dateien (Name, Vorname).</p>
   <div class="field-label" style="margin-top:6px">Schießstand <span class="muted small">(für den Standplan bei Wettkämpfen)</span></div>
   <div class="row2">
     {% for k, (label, _d) in RANGE.items() %}<label>{{ label }}<input type="number" min="1" name="{{ k }}" value="{{ ranges[k] }}" inputmode="numeric"></label>{% endfor %}

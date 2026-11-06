@@ -618,9 +618,35 @@ def match_lanes(m, area):
     return m["lanes"] or range_setting("lanes_kk" if area == "KK" else "lanes_lg")
 
 
+NAME_ORDERS = {"nachname": "Nachname Vorname (z. B. Müller Jens)", "vorname": "Vorname Nachname (z. B. Jens Müller)"}
+
+
+def name_order():
+    """Wie Namen im Verein geschrieben werden (Vereinseinstellung). Standard: Nachname zuerst."""
+    v = setting("name_order")
+    return v if v in NAME_ORDERS else "nachname"
+
+
 def split_name(name):
-    parts = (name or "").strip().rsplit(" ", 1)
-    return (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
+    """Name -> (Vorname, Nachname), passend zum Namensformat des Vereins. 'Müller, Jens' geht immer."""
+    name = " ".join((name or "").split())
+    if "," in name:
+        last, _, first = name.partition(",")
+        return first.strip(), last.strip()
+    if " " not in name:
+        return "", name
+    if name_order() == "nachname":
+        last, first = name.split(" ", 1)
+    else:
+        first, last = name.rsplit(" ", 1)
+    return first, last
+
+
+def join_name(first, last):
+    """Vorname + Nachname im Namensformat des Vereins zusammensetzen."""
+    first, last = (first or "").strip(), (last or "").strip()
+    parts = (last, first) if name_order() == "nachname" else (first, last)
+    return " ".join(x for x in parts if x)
 
 
 def starters(m, t):
@@ -701,7 +727,8 @@ def inject():
     me_ = current_user()
     acc = ACCENTS.get(me_["accent"] if me_ else "gruen", ACCENTS["gruen"])
     return dict(csrf=session["csrf"], me=me_, ROLES=ROLES, ICONS=ICONS, AVAIL=AVAIL, ACC=acc,
-                VEREIN=setting("club_name") or VEREIN_NAME, today=date.today().isoformat(), RWK_HOME=RWK_HOME)
+                VEREIN=setting("club_name") or VEREIN_NAME, today=date.today().isoformat(), RWK_HOME=RWK_HOME,
+                NAME_ORDER=name_order() if request.endpoint not in ("static", "calendar_feed") else "nachname")
 
 
 # ---------------------------------------------------------------- Login
@@ -1578,14 +1605,12 @@ def temp_locked_names():
 
 
 def tidy_name(name):
-    """'Müller, Jens' -> ('Jens Müller', 'Jens'); sonst unverändert, Vorname = erstes Wort."""
+    """Name vereinheitlichen: Leerzeichen, 'Müller, Jens' ins Namensformat des Vereins. -> (Name, Vorname)."""
     name = " ".join((name or "").split())
-    if "," in name:
-        last, _, first = name.partition(",")
-        first, last = first.strip(), last.strip()
-        if first and last:
-            return f"{first} {last}", first.split()[0]
-    return name, (name.split()[0] if name else "")
+    first, last = split_name(name)
+    if "," in name and first and last:
+        name = join_name(first, last)
+    return name, (first.split()[0] if first else name.split()[0] if name else "")
 
 
 def swap_name(name):
@@ -1599,7 +1624,7 @@ def swap_name(name):
 
 @app.template_filter("vorname")
 def first_name_of(u):
-    """Vorname für die Begrüßung: eingetragen, sonst aus 'Nachname, Vorname', sonst das erste Wort."""
+    """Vorname für die Begrüßung: eingetragen, sonst aus dem Namen (je nach Namensformat des Vereins)."""
     if not u:
         return ""
     if u["first_name"]:
@@ -3281,6 +3306,10 @@ def club():
         for k in CLUB_FIELDS:
             conn.execute("""INSERT INTO settings (key, value) VALUES (?,?)
                             ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (k, request.form.get(k, "").strip()))
+        if "name_order" in request.form:   # nur ändern, wenn das Feld mitgeschickt wurde
+            order = request.form.get("name_order") if request.form.get("name_order") in NAME_ORDERS else "nachname"
+            conn.execute("""INSERT INTO settings (key, value) VALUES ('name_order', ?)
+                            ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (order,))
         for k, (_label, default) in RANGE_FIELDS.items():
             n = request.form.get(k, type=int)
             conn.execute("""INSERT INTO settings (key, value) VALUES (?,?)
@@ -3290,10 +3319,12 @@ def club():
         return redirect(url_for("club"))
     values = {k: setting(k) for k in CLUB_FIELDS}
     values["club_name"] = values["club_name"] or VEREIN_NAME
+    values["name_order"] = name_order()
     counts = q("""SELECT (SELECT COUNT(*) FROM users WHERE active=1) users, (SELECT COUNT(*) FROM teams) teams,
                   (SELECT COUNT(*) FROM opp_clubs) opps""", one=True)
     ranges = {k: range_setting(k) for k in RANGE_FIELDS}
-    return render_template("club.html", values=values, FIELDS=CLUB_FIELDS, counts=counts, RANGE=RANGE_FIELDS, ranges=ranges)
+    return render_template("club.html", values=values, FIELDS=CLUB_FIELDS, counts=counts, RANGE=RANGE_FIELDS, ranges=ranges,
+                           NAME_ORDERS=NAME_ORDERS)
 
 
 # ---------------------------------------------------------------- Gegner (Verein -> Mannschaften -> Schützen)
@@ -3721,7 +3752,7 @@ def csv_import(kind):
                     skipped += 1
                     continue
                 if pick == "opponent" and kind == "schuetzen":   # als Gegnerschütze beim jeweiligen Gegnerverein ablegen
-                    sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
+                    sname = rec.get("name") or join_name(rec.get("vorname"), rec.get("nachname"))
                     if sname and rec.get("club"):
                         cid = opp_club_for(conn, rec["club"])
                         upsert_opp_shooter(conn, cid, None, sname, rec)
@@ -3736,7 +3767,7 @@ def csv_import(kind):
                 before = conn.total_changes
                 cid = opp_club_for(conn, rec["club"], rec.get("location", ""))
                 team_id = find_or_create_opp_team(conn, cid, rec["team"]) if rec.get("team") else None
-                sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
+                sname = rec.get("name") or join_name(rec.get("vorname"), rec.get("nachname"))
                 if sname:
                     upsert_opp_shooter(conn, cid, team_id, sname, rec)
                 if conn.total_changes > before:
@@ -3744,7 +3775,7 @@ def csv_import(kind):
                 else:
                     updated += 1
                 continue
-            name = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
+            name = rec.get("name") or join_name(rec.get("vorname"), rec.get("nachname"))
             name, guessed = tidy_name(name)
             first = (rec.get("vorname") or "").strip()
             first = "" if first == guessed else first[:40]

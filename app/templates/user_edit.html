@@ -7,8 +7,8 @@
 <form method="post" class="card stack narrow">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <div class="row2">
-    <label>Vor- und Nachname <span class="muted small">(Vorname zuerst)</span><input name="name" value="{{ user.name if user }}" placeholder="z. B. Jens Müller" required></label>
-    <label>Vorname / Rufname <span class="muted small">(für die Begrüßung)</span><input name="first_name" value="{{ user|vorname if user and user.id }}" maxlength="40" placeholder="leer = erstes Wort"></label>
+    <label>{{ 'Nachname Vorname' if NAME_ORDER == 'nachname' else 'Vorname Nachname' }}<input name="name" value="{{ user.name if user }}" placeholder="{{ 'z. B. Müller Jens' if NAME_ORDER == 'nachname' else 'z. B. Jens Müller' }}" required></label>
+    <label>Vorname / Rufname <span class="muted small">(für die Begrüßung)</span><input name="first_name" value="{{ user|vorname if user and user.id }}" maxlength="40" placeholder="leer = aus dem Namen"></label>
   </div>
   <label>Benutzername <span class="muted small">(zum Anmelden)</span><input name="username" value="{{ user.username if user }}" autocapitalize="none" required></label>
   <label>Rolle

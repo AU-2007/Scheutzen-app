@@ -21,7 +21,13 @@ case "${1:-}" in
 esac
 
 old="$(git rev-parse HEAD)"
-git fetch -q || { [ "$mode" = "rollback" ] || fail "GitHub nicht erreichbar (git fetch)."; }
+if ! git fetch -q; then
+  case "$mode" in
+    rollback) ;;                                  # alte Versionen sind lokal vorhanden
+    force) warn "GitHub nicht erreichbar. Baue die aktuelle Version neu." ;;
+    *) fail "GitHub nicht erreichbar (git fetch)." ;;
+  esac
+fi
 
 if [ "$mode" = "rollback" ]; then
   [[ "$target" =~ ^[0-9a-f]{7,40}$ ]] || fail "Bitte eine Version (Commit-Kennung) angeben, z. B. ./update.sh --rollback 2384b76"
@@ -39,7 +45,7 @@ else
   fi
 fi
 
-[ -f data/verein.db ] && { info "Sicherung vor dem Neubau"; ./scripts/backup.sh neubau; }
+if [ "${SKIP_BACKUP:-0}" != "1" ] && [ -f data/verein.db ]; then info "Sicherung vor dem Neubau"; ./scripts/backup.sh neubau; fi
 
 if [ "$old" != "$new" ]; then
   if [ "$mode" = "rollback" ]; then

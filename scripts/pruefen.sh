@@ -6,21 +6,31 @@ source "$(dirname "$0")/lib.sh"
 need_root
 export DEBIAN_FRONTEND=noninteractive
 
-apt-get update -qq || warn "apt-get update fehlgeschlagen"
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+
+# Die drei Abfragen laufen gleichzeitig (Paketquellen, GitHub, Python-Paketindex)
+(
+  [ "${SKIP_APT_UPDATE:-0}" = "1" ] || apt-get update -qq -o Acquire::Languages=none || echo fail > "$tmp/apt-fail"
+) &
+(
+  cd "$APP_DIR"
+  if git fetch -q 2>/dev/null; then
+    git rev-list --count HEAD..@{u} > "$tmp/behind" 2>/dev/null || echo 0 > "$tmp/behind"
+    git log --format='%cd|%s' --date=format:'%d.%m.%Y' HEAD..@{u} 2>/dev/null | head -10 > "$tmp/commits" || true
+  fi
+) &
+# Python-Module im Container: gibt es neuere Versionen? (nur Anzeige, Update über Dependabot/GitHub)
+( timeout 90 docker exec -e PIP_DISABLE_PIP_VERSION_CHECK=1 -e PIP_NO_CACHE_DIR=1 schuetzen-mannschaften \
+    python -m pip list --outdated --format=json > "$tmp/outdated" 2>/dev/null || true ) &
+wait
+[ -f "$tmp/apt-fail" ] && warn "apt-get update fehlgeschlagen"
+
 listing="$(apt list --upgradable 2>/dev/null | tail -n +2 || true)"
 # was full-upgrade wirklich installieren würde (ohne gestaffelte Ubuntu-Updates)
 installable="$(apt-get -s -o Debug::NoLocking=1 full-upgrade 2>/dev/null | awk '/^Inst /{print $2}' || true)"
-
-# App: neue Version auf GitHub?
-behind=0; commits=""
-if (cd "$APP_DIR" && git fetch -q 2>/dev/null); then
-  behind="$(cd "$APP_DIR" && git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)"
-  commits="$(cd "$APP_DIR" && git log --format='%cd|%s' --date=format:'%d.%m.%Y' HEAD..@{u} 2>/dev/null | head -10 || true)"
-fi
-
-# Python-Module im Container: gibt es neuere Versionen? (nur Anzeige, Update über Dependabot/GitHub)
-outdated="$(timeout 90 docker exec -e PIP_DISABLE_PIP_VERSION_CHECK=1 -e PIP_NO_CACHE_DIR=1 schuetzen-mannschaften \
-  python -m pip list --outdated --format=json 2>/dev/null || true)"
+behind="$(cat "$tmp/behind" 2>/dev/null || echo 0)"
+commits="$(cat "$tmp/commits" 2>/dev/null || true)"
+outdated="$(cat "$tmp/outdated" 2>/dev/null || true)"
 
 INSTALLABLE="$installable" OUTDATED="$outdated" LISTING="$listing" COMMITS="$commits" python3 -I - "$STATUS_FILE" "$behind" <<'PY'
 import json, os, sys, datetime

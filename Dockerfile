@@ -12,6 +12,7 @@ RUN date > /srv/app/.build
 USER app
 VOLUME /data
 EXPOSE 8000
-HEALTHCHECK --interval=60s --timeout=5s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/login')" || exit 1
+# Startphase: alle 2 s prüfen (Updates warten so nicht eine Minute), danach jede Minute
+HEALTHCHECK --interval=60s --timeout=5s --start-period=60s --start-interval=2s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/login')" || exit 1
 # --preload: Datenbank wird genau einmal initialisiert, bevor die Worker starten
 CMD ["gunicorn", "-w", "2", "--preload", "-b", "0.0.0.0:8000", "--chdir", "app", "app:app"]

@@ -177,7 +177,7 @@ Die **Admin-Übersicht** der App zeigt unter *Wartung & Updates* die letzte Sich
 Admins finden unter **Menü → Wartung** (`/admin/wartung`):
 - **Status** aller Skripte und Zeitpläne (zuletzt / nächstes Mal), letzte Sicherung, Prüfung, Wartung, Update, Neubau
 - **Versionen**: Python, Flask, Werkzeug, Jinja2, gunicorn, Pillow usw., Container- und Server-System, Kernel, Docker, cloudflared. Neuere Versionen werden markiert (Prüfung täglich 06:30).
-- **Knöpfe**: Sicherung jetzt, Auf Updates prüfen, Linux-Updates installieren, Wartung jetzt, App aktualisieren, Container neu bauen. Die Ausgabe läuft live mit.
+- **Knöpfe**: **Alles aktualisieren** (eine Sicherung, Linux-Updates, neue App-Version, Neubau, Aufräumen, Prüfen in einem Lauf), außerdem einzeln: Auf Updates prüfen, Sicherung jetzt, Linux-Updates installieren, App aktualisieren, Container neu bauen, Server neu starten. Die Ausgabe läuft live mit.
 - **Zurückrollen** auf eine der letzten 15 App-Versionen (Bestätigung „ZURÜCK“)
 - **Sicherung einspielen** (Bestätigung „EINSPIELEN“, der aktuelle Stand wird vorher gesichert)
 

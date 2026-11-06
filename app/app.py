@@ -1818,7 +1818,7 @@ JOB_ACTIONS = {
     "backup":   ("Sicherung jetzt", "Legt sofort eine Sicherung der Daten an (die letzten 5 manuellen bleiben)."),
     "pruefen":  ("Auf Updates prüfen", "Sucht nach Linux-Updates, neuen App-Versionen und neueren Python-Modulen. Installiert nichts."),
     "linux":    ("Linux-Updates installieren", "Installiert alle Linux-Updates (wie sudo apt full-upgrade), auch neue Kernel. Die App läuft weiter."),
-    "wartung":  ("Wartung jetzt", "Sicherung, alle Linux-Updates installieren, aufräumen. Wie sonntags um 04:00."),
+    "wartung":  ("Alles aktualisieren", "Sicherung, Linux-Updates, neue App-Version holen, Container neu bauen, aufräumen, prüfen. In einem Lauf, wie sonntags um 04:00."),
     "update":   ("App aktualisieren", "Holt die neue Version von GitHub und baut den Container neu. Vorher wird gesichert."),
     "rebuild":  ("Container neu bauen", "Baut den Container auch ohne neue App-Version neu (aktuelle Sicherheitsupdates im Image). Vorher wird gesichert."),
     "reboot":   ("Server neu starten", "Startet den ganzen Server neu (nach 1 Minute). App und Tunnel sind 1 bis 2 Minuten weg und starten von selbst wieder."),

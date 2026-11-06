@@ -61,14 +61,18 @@ PY
 
 # Auf "healthy" warten (max. $1 Sekunden). Rückgabe 0 = gesund.
 wait_healthy() {
-  local limit="${1:-90}" waited=0 state
-  while [ "$waited" -lt "$limit" ]; do
+  local limit="${1:-90}" start=$SECONDS state
+  while [ $((SECONDS - start)) -lt "$limit" ]; do
     state="$(docker inspect -f '{{.State.Health.Status}}' schuetzen-mannschaften 2>/dev/null || echo fehlt)"
     [ "$state" = "healthy" ] && return 0
-    sleep 5; waited=$((waited + 5))
+    [ "$state" = "unhealthy" ] && [ $((SECONDS - start)) -gt 70 ] && return 1
+    sleep 2
   done
   return 1
 }
+
+# apt-get mit weniger Ballast (keine Übersetzungen laden) und ohne Rückfragen
+APT_OPTS=(-q -o Acquire::Languages=none -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 
 # Pakete mit ausstehenden Updates zählen (nur Debian/Ubuntu)
 pending_updates() {

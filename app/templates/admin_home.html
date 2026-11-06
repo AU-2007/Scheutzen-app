@@ -6,7 +6,6 @@
   <a class="btn small-btn" href="{{ url_for('schedule') }}">Termine ansehen</a>
 </div>
 
-{% for w in warnings %}<div class="flash info">{{ w }}</div>{% endfor %}
 
 {# ---------- Kennzahlen ---------- #}
 <div class="kpis">
@@ -93,81 +92,40 @@
   {% endif %}
 </section>
 
-{# ---------- Wartung & Updates ---------- #}
+{# ---------- Server & Wartung (Details auf der Wartungsseite) ---------- #}
+{% set todo_srv = [] %}
+{% if maint and maint.app_behind %}{% set _ = todo_srv.append('neue App-Version') %}{% endif %}
+{% if maint and maint.pending_updates %}{% set _ = todo_srv.append(maint.pending_updates ~ ' Linux-Update' ~ ('s' if maint.pending_updates != 1 else '')) %}{% endif %}
+{% if maint and maint.reboot_required %}{% set _ = todo_srv.append('Neustart nötig') %}{% endif %}
 <section id="wartung">
-  <div class="head-row"><h2>Wartung &amp; Updates</h2><a class="btn small-btn" href="{{ url_for('admin_maintenance') }}">Wartung öffnen</a></div>
-  {% if not maint %}
-  <div class="card stack">
-    <p style="margin:0">Die automatische Wartung ist noch nicht eingerichtet. Auf dem Server einmal ausführen:</p>
-    <pre class="report">cd /opt/schuetzenverein && sudo bash scripts/einrichten.sh</pre>
-    <p class="muted small" style="margin:0">Danach siehst du hier Sicherungen, anstehende Linux-Updates und neue App-Versionen.</p>
-  </div>
-  {% else %}
-  <div class="card server">
-    <dl>
-      <dt>Sicherung</dt>
-      <dd>{% if maint.last_backup %}<span class="{{ 'bad-text' if maint.backup_age_h > 36 else '' }}">{{ maint.last_backup|seit }}</span>
-        <span class="muted small">· {{ maint.last_backup_size }} · {{ maint.backup_count }} vorhanden · täglich 03:15</span>{% else %}<span class="bad-text">noch keine</span>{% endif %}</dd>
-      <dt>Linux-Pakete</dt>
-      <dd>{% if maint.pending_updates %}<b>{{ maint.pending_updates }} Update{{ 's' if maint.pending_updates != 1 }}</b>
-        {% if maint.pending_security %}<span class="pill av-nein">{{ maint.pending_security }} Sicherheit</span>{% endif %}{% else %}<span class="ok-text">aktuell</span>{% endif %}
-        {% if maint.checked_at %}<span class="muted small">· geprüft {{ maint.checked_at|seit }}</span>{% endif %}</dd>
-      <dt>Neustart nötig</dt>
-      <dd>{% if maint.reboot_required %}<span class="pill av-vielleicht">ja</span> <span class="muted small">{{ maint.reboot_pkgs|join(', ') }} · automatisch um 04:30 · <a href="{{ url_for('admin_maintenance') }}">jetzt neu starten</a></span>{% else %}nein{% endif %}</dd>
-      <dt>App-Version</dt>
-      <dd>{% if maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} auf GitHub</b>{% else %}<span class="ok-text">aktuell</span>{% endif %}
-        {% if maint.app_version %}<span class="muted small">· installiert {{ maint.app_version }}</span>{% endif %}</dd>
-      <dt>Container gebaut</dt>
-      <dd>{% if server.built %}{{ server.built|seit }}{% elif maint.last_build %}{{ maint.last_build|seit }}{% else %}unbekannt{% endif %}
-        <span class="muted small">· neu gebaut bei jedem ./update.sh und sonntags bei der Wartung</span></dd>
-      <dt>Letzte Wartung</dt>
-      <dd>{{ maint.last_maintenance|seit if maint.last_maintenance else 'noch nie' }} <span class="muted small">· sonntags 04:00{% if maint.ssh_banned %} · {{ maint.ssh_banned }} IPs per fail2ban gesperrt{% endif %}</span></dd>
-    </dl>
-    {% if maint.app_new %}
-    <details class="upd-list">
-      <summary class="small">Was ist neu in der App?</summary>
-      <ul class="small">{% for c in maint.app_new %}<li><span class="muted">{{ c.date }}</span> {{ c.msg }}</li>{% endfor %}</ul>
-      <p class="small muted" style="margin:0">Installieren: <a href="{{ url_for('admin_maintenance') }}">Wartung → App aktualisieren</a></p>
-    </details>
-    {% endif %}
-    {% if maint.pending_list %}
-    <details class="upd-list">
-      <summary class="small">Anstehende Paket-Updates anzeigen ({{ maint.pending_list|length }})</summary>
-      <div class="flush" style="overflow-x:auto">
-        <table class="log">
-          <thead><tr><th>Paket</th><th class="hide-sm">installiert</th><th>neu</th></tr></thead>
-          <tbody>
-          {% for p in maint.pending_list %}<tr><td class="mono small">{{ p.name }}{% if p.security %} <span class="pill av-nein">Sicherheit</span>{% endif %}{% if p.phased %} <span class="pill open" title="Ubuntu liefert das Update gestaffelt aus, es kommt in den nächsten Tagen von selbst">gestaffelt</span>{% endif %}</td>
-            <td class="hide-sm small muted mono">{{ p.old }}</td><td class="small mono">{{ p.new }}</td></tr>{% endfor %}
-          </tbody>
-        </table>
+  <details class="card srv-box {{ 'srv-warn' if warnings else ('srv-todo' if todo_srv else 'srv-ok') }}">
+    <summary>
+      <span class="srv-title">Server &amp; Wartung</span>
+      <span class="srv-state">
+        {% if warnings %}⚠ {{ warnings|length }} Hinweis{{ 'e' if warnings|length != 1 }}{% if todo_srv %} · {{ todo_srv|join(' · ') }}{% endif %}
+        {% elif todo_srv %}{{ todo_srv|join(' · ') }}
+        {% elif not maint %}Wartung noch nicht eingerichtet
+        {% else %}✓ Alles in Ordnung{% endif %}
+      </span>
+    </summary>
+    <div class="stack" style="margin-top:12px">
+      {% if warnings %}<div class="flash info hint-box" style="margin:0"><ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+      {% if not maint %}
+      <p style="margin:0">Die automatische Wartung ist noch nicht eingerichtet. Auf dem Server einmal ausführen:</p>
+      <pre class="report">cd /opt/schuetzenverein && sudo bash scripts/einrichten.sh</pre>
+      {% endif %}
+      <div class="srv-mini">
+        <div><span class="muted small">Sicherung</span><b class="{{ 'bad-text' if maint and (maint.backup_age_h is none or maint.backup_age_h > 36) }}">{{ maint.last_backup|seit if maint and maint.last_backup else 'keine' }}</b></div>
+        <div><span class="muted small">Updates</span><b>{{ todo_srv[:2]|join(', ') if todo_srv else 'aktuell' }}</b></div>
+        <div><span class="muted small">Speicher frei</span><b class="{{ 'bad-text' if server.disk_pct >= 90 }}">{{ server.disk_free|bytes }}</b></div>
+        <div><span class="muted small">App läuft seit</span><b>{{ server.uptime }}</b></div>
       </div>
-      <p class="small muted" style="margin:6px 0 0">Sicherheitsupdates installiert der Server jede Nacht selbst, alle anderen bei der Wartung am Sonntag. Sofort: <a href="{{ url_for('admin_maintenance') }}">Wartung → Linux-Updates installieren</a>{% if maint.pending_phased %}. „Gestaffelt“: Ubuntu verteilt das Update nach und nach, es kommt von selbst.{% endif %}</p>
-    </details>
-    {% endif %}
-  </div>
-  {% endif %}
-</section>
-
-{# ---------- Server ---------- #}
-<section>
-  <h2>Server</h2>
-  <div class="card server">
-    <dl>
-      <dt>Container gebaut</dt><dd>{{ server.built|seit if server.built else 'unbekannt' }}</dd>
-      <dt>Läuft seit</dt><dd>{{ server.uptime }} <span class="muted small">(Start {{ server.started }})</span></dd>
-      <dt>Datenbank</dt><dd>{{ server.db|bytes }}{% if server.avatars %} <span class="muted small">+ Profilbilder {{ server.avatars|bytes }}</span>{% endif %}</dd>
-      <dt>Speicher</dt><dd>
-        <div class="disk"><i style="width: {{ server.disk_pct }}%" class="{{ 'full' if server.disk_pct >= 90 }}"></i></div>
-        <span class="small">{{ server.disk_free|bytes }} frei von {{ server.disk_total|bytes }}</span></dd>
-      <dt>HTTPS</dt><dd>{{ 'aktiv' if server.https else 'nicht aktiv' }}</dd>
-      <dt>Versionen</dt><dd class="small">Python {{ server.python }} · Flask {{ server.flask }} · SQLite {{ server.sqlite }}</dd>
-      <dt>Rechner</dt><dd class="small mono">{{ server.host }}</dd>
-    </dl>
-    <div class="inline wrap">
-      <a class="btn small-btn primary" href="{{ url_for('admin_backup') }}">Datenbank-Backup herunterladen</a>
+      <div class="inline wrap">
+        <a class="btn primary" href="{{ url_for('admin_maintenance') }}">Zur Wartung</a>
+        <a class="btn small-btn" href="{{ url_for('admin_backup') }}">Datenbank herunterladen</a>
+      </div>
     </div>
-  </div>
+  </details>
 </section>
 
 {# ---------- Verwaltung ---------- #}

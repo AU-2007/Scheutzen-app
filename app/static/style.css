@@ -655,3 +655,36 @@ section[id] { scroll-margin-top: 120px; }
 .rwk-status { flex-basis: 100%; order: 5; }
 .rwk-edit { margin-left: auto; }
 [data-bound-team][hidden] { display: none; }
+
+/* Admin-Übersicht: Server & Wartung */
+.srv-box > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; cursor: pointer; }
+.srv-title { font-weight: 700; font-size: 1.05rem; }
+.srv-state { font-size: .9rem; }
+.srv-ok .srv-state { color: var(--green-2); }
+.srv-todo .srv-state { color: var(--gold); font-weight: 600; }
+.srv-warn { border-color: var(--gold); }
+.srv-warn .srv-state { color: var(--red); font-weight: 600; }
+.srv-mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.srv-mini > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--bg); }
+
+/* Wartungsseite: Zustand, Hauptaktion, aufklappbare Bereiche */
+.state-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 14px; align-items: stretch; }
+.state-tile { display: grid; align-content: start; gap: 2px; margin: 0; padding: 12px 14px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--line); border-left-width: 4px; }
+.state-tile span { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.state-tile b { font-size: 1.05rem; }
+.state-tile small { color: var(--muted); font-size: .8rem; }
+.state-tile.ok { border-left-color: var(--green-2); }
+.state-tile.todo { border-left-color: var(--gold); }
+.state-tile.bad { border-left-color: var(--red); }
+.state-tile.bad b { color: var(--red); }
+.main-action { display: grid; gap: 14px; margin: 14px 0; }
+@media (min-width: 640px) { .main-action { grid-template-columns: 1fr auto; align-items: center; } }
+.main-action-buttons { display: grid; gap: 8px; justify-items: stretch; min-width: 220px; }
+.main-action-buttons .inline { justify-content: center; }
+.todo-text { color: var(--gold); }
+.fold-list { display: grid; gap: 10px; }
+.card.fold > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; cursor: pointer; }
+.card.fold > summary span { flex: 1 1 auto; text-align: right; }
+@media (max-width: 560px) { .card.fold > summary span { text-align: left; flex-basis: 100%; } }
+.hint-box ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9rem; }
+.hint-box > b + ul { margin-top: 6px; }

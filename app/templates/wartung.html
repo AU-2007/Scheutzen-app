@@ -8,9 +8,6 @@
 <div class="flash error">Der Wartungsdienst ist auf dem Server noch nicht eingerichtet. Die Knöpfe funktionieren erst danach. Einmal auf dem Server ausführen:
   <pre class="report" style="margin-top:6px">cd /opt/schuetzenverein && sudo bash scripts/einrichten.sh</pre></div>
 {% endif %}
-{% if maint.backup_dir and not maint.backup_dir_mounted %}
-<div class="flash info">Die Sicherungen liegen in <code>{{ maint.backup_dir }}</code>, das ist kein eigenes Laufwerk. Fällt die Systemplatte aus, sind sie mit weg. Für ein festes Laufwerk <code>BACKUP_DIR</code> in der <code>.env</code> setzen (siehe Anleitung).</div>
-{% endif %}
 
 {# ---------- Laufender / gewählter Auftrag ---------- #}
 {% if show %}
@@ -26,72 +23,153 @@
 </section>
 {% endif %}
 
-{# ---------- Aktionen ---------- #}
-<section>
-  <h2>Aktionen</h2>
-  <div class="card stack">
-    {% for key in ('wartung', 'pruefen', 'backup', 'linux', 'update', 'rebuild', 'reboot') %}
-    <form method="post" action="{{ url_for('admin_job_create') }}" class="job-action"
-          {% if key in ('wartung', 'update', 'rebuild', 'reboot') %}onsubmit='return confirm({{ (ACTIONS[key][0] ~ "? Die App ist dabei kurz nicht erreichbar.")|tojson }})'{% endif %}>
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="action" value="{{ key }}">
-      <div><b>{{ ACTIONS[key][0] }}</b><br><span class="muted small">{{ ACTIONS[key][1] }}
-        {% if key == 'wartung' and (maint.app_behind or maint.pending_updates) %}<b>Bereit: {% if maint.app_behind %}neue App-Version{% endif %}{% if maint.app_behind and maint.pending_updates %}, {% endif %}{% if maint.pending_updates %}{{ maint.pending_updates }} Linux-Update{{ 's' if maint.pending_updates != 1 }}{% endif %}.</b>{% endif %}
-        {% if key == 'update' and maint.app_behind %}<b>{{ maint.app_behind }} neue Version{{ 'en' if maint.app_behind != 1 }} verfügbar.</b>{% endif %}
-        {% if key == 'linux' and maint.pending_updates %}<b>{{ maint.pending_updates }} Update{{ 's' if maint.pending_updates != 1 }} bereit{% if maint.pending_security %}, davon {{ maint.pending_security }} Sicherheit{% endif %}.</b>{% endif %}
-        {% if key == 'reboot' and maint.reboot_required %}<b>Neustart nötig{% if maint.reboot_pkgs %} ({{ maint.reboot_pkgs|join(', ') }}){% endif %}.</b> Sonst automatisch um 04:30.{% endif %}</span></div>
-      <button class="btn {{ 'primary' if (key == 'wartung' and (maint.app_behind or maint.pending_updates)) or (key == 'reboot' and maint.reboot_required) else '' }}" {{ 'disabled' if active }}>{{ 'Neu starten' if key == 'reboot' else 'Starten' }}</button>
-    </form>
-    {% endfor %}
-    {% if active %}<p class="small muted" style="margin:0">Es läuft gerade ein Auftrag. Neue Aufträge gehen erst danach.</p>{% endif %}
+{# ---------- Zustand auf einen Blick ---------- #}
+{% set bk_old = not maint.last_backup or (maint.backup_age_h is not none and maint.backup_age_h > 36) %}
+<div class="state-grid">
+  <div class="state-tile {{ 'bad' if bk_old else 'ok' }}">
+    <span>Sicherung</span><b>{{ maint.last_backup|seit if maint.last_backup else 'keine' }}</b>
+    <small>{{ backups|length }} vorhanden{{ ', eigenes Laufwerk' if maint.backup_dir_mounted }}</small></div>
+  <div class="state-tile {{ 'bad' if maint.pending_security else ('todo' if maint.pending_updates else 'ok') }}">
+    <span>Linux</span><b>{% if maint.pending_updates %}{{ maint.pending_updates }} Update{{ 's' if maint.pending_updates != 1 }}{% else %}aktuell{% endif %}</b>
+    <small>{% if maint.pending_security %}{{ maint.pending_security }} Sicherheit{% elif maint.checked_at %}geprüft {{ maint.checked_at|seit }}{% else %}nicht geprüft{% endif %}</small></div>
+  <div class="state-tile {{ 'todo' if maint.app_behind else 'ok' }}">
+    <span>App</span><b>{{ 'neue Version' if maint.app_behind else 'aktuell' }}</b>
+    <small>{{ maint.app_version or '' }}</small></div>
+  <div class="state-tile {{ 'todo' if maint.reboot_required else 'ok' }}">
+    <span>Neustart</span><b>{{ 'nötig' if maint.reboot_required else 'nicht nötig' }}</b>
+    <small>{% if maint.reboot_required and maint.reboot_pkgs %}wegen {{ maint.reboot_pkgs|join(', ') }}{% elif maint.reboot_required %}sonst automatisch 04:30{% else %}App läuft seit {{ server.uptime }}{% endif %}</small></div>
+</div>
+{% if warnings %}
+<div class="flash info hint-box"><b>{{ warnings|length }} Hinweis{{ 'e' if warnings|length != 1 }}</b>
+  <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>
+{% endif %}
+
+{# ---------- Hauptaktion ---------- #}
+{% macro job_form(key, cls='', label=None, confirm=True) %}
+  <form method="post" action="{{ url_for('admin_job_create') }}"
+        {% if confirm and key in ('wartung', 'update', 'rebuild', 'reboot') %}onsubmit='return confirm({{ (ACTIONS[key][0] ~ "? Die App ist dabei kurz nicht erreichbar.")|tojson }})'{% endif %}>
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="{{ key }}">
+    <button class="btn {{ cls }}" {{ 'disabled' if active }}>{{ label or ACTIONS[key][0] }}</button>
+  </form>
+{% endmacro %}
+{% set ready = [] %}
+{% if maint.app_behind %}{% set _ = ready.append('neue App-Version') %}{% endif %}
+{% if maint.pending_updates %}{% set _ = ready.append(maint.pending_updates ~ ' Linux-Update' ~ ('s' if maint.pending_updates != 1 else '')) %}{% endif %}
+<section class="card main-action">
+  <div>
+    <h2 style="margin:0">Alles aktualisieren</h2>
+    <p class="muted small" style="margin:4px 0 0">Eine Sicherung, Linux-Updates, neue App-Version, Neubau, Aufräumen, Prüfen. In einem Lauf, läuft auch automatisch sonntags um 04:00{% if maint.last_maintenance %} (zuletzt {{ maint.last_maintenance|seit }}){% endif %}.</p>
+    <p class="small" style="margin:6px 0 0">{% if ready %}<b class="todo-text">Bereit: {{ ready|join(', ') }}</b>{% else %}<span class="ok-text">Nichts Neues, alles aktuell.</span>{% endif %}</p>
   </div>
+  <div class="main-action-buttons">
+    {{ job_form('wartung', 'primary big-btn' if ready else 'big-btn', 'Alles aktualisieren') }}
+    <div class="inline wrap">
+      {{ job_form('pruefen', 'small-btn', 'Jetzt prüfen') }}
+      {% if maint.reboot_required %}{{ job_form('reboot', 'small-btn primary', 'Server neu starten') }}{% endif %}
+    </div>
+  </div>
+  {% if active %}<p class="small muted" style="margin:0">Es läuft gerade ein Auftrag. Neue Aufträge gehen erst danach.</p>{% endif %}
 </section>
 
-{# ---------- Status ---------- #}
-<section>
-  <h2>Status</h2>
-  <div class="card server">
-    <dl>
-      <dt>Wartungsdienst</dt>
-      <dd>{% if maint.runner_installed %}<span class="ok-text">eingerichtet</span>{% else %}<span class="bad-text">fehlt</span>{% endif %}
-        {% if maint.snapshot_at %}<span class="muted small">· Stand {{ maint.snapshot_at|seit }}</span>{% endif %}</dd>
-      <dt>Sicherung</dt>
-      <dd>{% if maint.last_backup %}<span class="{{ 'bad-text' if maint.backup_age_h and maint.backup_age_h > 36 }}">{{ maint.last_backup|seit }}</span>
-        <span class="muted small">· {{ maint.last_backup_size }}</span>{% else %}<span class="bad-text">noch keine</span>{% endif %}</dd>
-      <dt>Prüfung</dt>
-      <dd>{{ maint.checked_at|seit }}{% if maint.pending_updates %} <span class="muted small">· {{ maint.pending_updates }} Linux-Updates{% if maint.pending_security %}, <span class="bad-text">{{ maint.pending_security }} Sicherheit</span>{% endif %}</span>{% endif %}{% if maint.pending_phased %} <span class="muted small">· {{ maint.pending_phased }} gestaffelt (kommen von selbst)</span>{% endif %}</dd>
-      <dt>Wartung</dt>
-      <dd>{{ maint.last_maintenance|seit }}{% if maint.problems %} <span class="bad-text small">· {{ maint.problems|join('; ') }}</span>{% endif %}</dd>
-      <dt>App-Update</dt>
-      <dd>{{ maint.last_update|seit }}{% if maint.app_version %} <span class="muted small">· Version {{ maint.app_version }}</span>{% endif %}</dd>
-      <dt>Container gebaut</dt>
-      <dd>{{ built|seit if built else (maint.last_build|seit if maint.last_build else 'unbekannt') }}</dd>
-      {% if maint.last_restore %}<dt>Eingespielt</dt><dd>{{ maint.last_restore|seit }}</dd>{% endif %}
-      {% if maint.reboot_required %}<dt>Neustart</dt><dd><span class="pill av-vielleicht">nötig</span> <span class="muted small">automatisch um 04:30 oder oben „Server neu starten“</span></dd>{% endif %}
-    </dl>
-    {% if maint.timers %}
+{# ---------- Aufklappbare Bereiche ---------- #}
+<div class="fold-list">
+<details class="card fold" id="einzeln">
+  <summary><b>Einzelne Aktionen</b><span class="muted small">Sicherung, nur Linux, nur App, Neubau, Neustart</span></summary>
+  <div class="stack" style="margin-top:10px">
+    {% for key in ('backup', 'linux', 'update', 'rebuild', 'reboot') %}
+    <div class="job-action">
+      <div><b>{{ ACTIONS[key][0] }}</b><br><span class="muted small">{{ ACTIONS[key][1] }}</span></div>
+      {{ job_form(key, 'small-btn', 'Starten' if key != 'reboot' else 'Neu starten') }}
+    </div>
+    {% endfor %}
+  </div>
+</details>
+
+{% if maint.app_new or maint.pending_list %}
+<details class="card fold" id="anstehend">
+  <summary><b>Was steht an?</b><span class="muted small">{{ ready|join(', ') if ready else 'Details' }}{% if maint.pending_phased %} · {{ maint.pending_phased }} gestaffelt{% endif %}</span></summary>
+  <div class="stack" style="margin-top:10px">
+    {% if maint.app_new %}
+    <div><b class="small">Neu in der App</b>
+      <ul class="small" style="margin:4px 0 0">{% for c in maint.app_new %}<li><span class="muted">{{ c.date }}</span> {{ c.msg }}</li>{% endfor %}</ul></div>
+    {% endif %}
+    {% if maint.pending_list %}
     <div class="flush" style="overflow-x:auto">
       <table class="log">
-        <thead><tr><th>Zeitplan</th><th>zuletzt</th><th>nächstes Mal</th></tr></thead>
+        <thead><tr><th>Linux-Paket</th><th class="hide-sm">installiert</th><th>neu</th></tr></thead>
         <tbody>
-        {% for key, label in (('backup', 'Sicherung'), ('pruefen', 'Update-Prüfung'), ('wartung', 'Wartung')) %}{% set t = maint.timers[key] or {} %}
-          <tr><td>{{ label }}{% if not t.active %} <span class="pill av-nein">aus</span>{% endif %}</td>
-            <td class="small">{{ t.last|termin }}</td><td class="small">{{ t.next|termin }}</td></tr>
+        {% for p in maint.pending_list %}<tr><td class="mono small">{{ p.name }}{% if p.security %} <span class="pill av-nein">Sicherheit</span>{% endif %}{% if p.phased %} <span class="pill open" title="Ubuntu liefert das Update gestaffelt aus">gestaffelt</span>{% endif %}</td>
+          <td class="hide-sm small muted mono">{{ p.old }}</td><td class="small mono">{{ p.new }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted" style="margin:0">Sicherheitsupdates installiert der Server jede Nacht selbst. „Gestaffelt“ = Ubuntu verteilt das Update nach und nach, es kommt von selbst.</p>
+    {% endif %}
+  </div>
+</details>
+{% endif %}
+
+<details class="card fold" id="sicherungen">
+  <summary><b>Sicherungen &amp; Wiederherstellen</b><span class="muted small">{{ backups|length }} Sicherung{{ 'en' if backups|length != 1 }}{% if maint.backup_dir %} · {{ maint.backup_dir }}{% endif %}</span></summary>
+  {% if backups %}
+  <form method="post" action="{{ url_for('admin_job_create') }}" class="stack" style="margin-top:10px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="restore">
+    <div class="flush" style="overflow-x:auto">
+      <table class="log">
+        <thead><tr><th></th><th>Zeitpunkt</th><th>Art</th><th>Größe</th></tr></thead>
+        <tbody>
+        {% for b in backups %}
+          <tr><td><input type="radio" name="param" value="{{ b.file }}" id="bk{{ loop.index }}" required aria-label="{{ b.file }}"></td>
+            <td><label for="bk{{ loop.index }}">{{ b.at|seit }}</label></td>
+            <td><span class="pill {{ 'gold' if b.kind == 'neubau' else 'open' }}">{{ {'taeglich': 'täglich', 'neubau': 'vor Neubau', 'manuell': 'manuell', 'vor-wiederherstellung': 'vor Einspielen'}[b.kind] or b.kind }}</span></td>
+            <td class="small muted">{{ b.size }}</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
-    {% endif %}
-  </div>
-</section>
+    <p class="small muted" style="margin:0">Es bleiben: tägliche {{ maint.keep.taeglich_tage if maint.keep else 14 }} Tage, vor Neubau die letzten {{ maint.keep.neubau if maint.keep else 3 }}, manuelle die letzten {{ maint.keep.manuell if maint.keep else 5 }}.{% if maint.backup_dir and not maint.backup_dir_mounted %} <b>Kein eigenes Laufwerk</b>: fällt die Systemplatte aus, sind die Sicherungen mit weg (BACKUP_DIR in der .env).{% endif %}</p>
+    <p class="small" style="margin:0"><b>Einspielen ersetzt alle aktuellen Daten</b> durch den Stand der Sicherung. Vorher wird der jetzige Stand noch einmal gesichert.</p>
+    <label>Zur Bestätigung „{{ CONFIRM.restore }}“ eintippen<input name="confirm" autocomplete="off" required></label>
+    <div class="inline wrap">
+      <button class="btn danger" {{ 'disabled' if active }}>Sicherung einspielen</button>
+      <a class="btn small-btn" href="{{ url_for('admin_backup') }}">Datenbank herunterladen</a>
+    </div>
+  </form>
+  {% else %}<p class="muted" style="margin:10px 0 0">Noch keine Sicherungen gefunden{% if maint.backup_dir %} in <code>{{ maint.backup_dir }}</code>{% endif %}.</p>{% endif %}
+</details>
 
-{# ---------- Versionen ---------- #}
-<section>
-  <h2>Versionen</h2>
-  <div class="card">
+<details class="card fold" id="zurueck">
+  <summary><b>App-Version zurückrollen</b><span class="muted small">{{ maint.app_version or 'Version' }}{% if versions %} · {{ versions|length }} zur Auswahl{% endif %}</span></summary>
+  {% if versions %}
+  <form method="post" action="{{ url_for('admin_job_create') }}" class="stack" style="margin-top:10px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="rollback">
+    <label>Version
+      <select name="param" required>
+        {% for v in versions %}<option value="{{ v.commit }}" {{ 'disabled' if v.current }}>{{ v.short }} · {{ v.date }} · {{ v.msg[:70] }}{{ ' (läuft jetzt)' if v.current }}</option>{% endfor %}
+      </select></label>
+    <p class="small muted" style="margin:0">Vorher wird gesichert, die Daten bleiben erhalten. Wieder nach vorne mit „App aktualisieren“.</p>
+    <label>Zur Bestätigung „{{ CONFIRM.rollback }}“ eintippen<input name="confirm" autocomplete="off" required></label>
+    <button class="btn danger" {{ 'disabled' if active }}>Zurückrollen</button>
+  </form>
+  {% else %}<p class="muted" style="margin:10px 0 0">Noch keine Versionsliste. Erst „Jetzt prüfen“ starten.</p>{% endif %}
+</details>
+
+<details class="card fold" id="server">
+  <summary><b>Server &amp; Versionen</b><span class="muted small">{{ server.disk_free|bytes }} frei{% if vers.modules|selectattr('latest')|list %} · {{ vers.modules|selectattr('latest')|list|length }} Modul-Update{{ 's' if vers.modules|selectattr('latest')|list|length != 1 }}{% endif %}</span></summary>
+  <div class="stack" style="margin-top:10px">
+    <div class="server"><dl>
+      <dt>Speicher</dt><dd><div class="disk"><i style="width: {{ server.disk_pct }}%" class="{{ 'full' if server.disk_pct >= 90 }}"></i></div>
+        <span class="small">{{ server.disk_free|bytes }} frei von {{ server.disk_total|bytes }}</span></dd>
+      <dt>Daten</dt><dd>Datenbank {{ server.db|bytes }}{% if server.avatars %} · Profilbilder {{ server.avatars|bytes }}{% endif %}</dd>
+      <dt>App läuft seit</dt><dd>{{ server.uptime }} <span class="muted small">(Start {{ server.started }})</span></dd>
+      <dt>Container gebaut</dt><dd>{{ built|seit if built else (maint.last_build|seit if maint.last_build else 'unbekannt') }}</dd>
+      <dt>HTTPS</dt><dd>{{ 'aktiv' if server.https else 'nicht erkannt' }}</dd>
+    </dl></div>
     <div class="flush" style="overflow-x:auto">
       <table class="log">
-        <thead><tr><th>Modul</th><th>installiert</th><th>neuer</th></tr></thead>
+        <thead><tr><th>Komponente</th><th>installiert</th><th>neuer</th></tr></thead>
         <tbody>
           <tr><td>Python</td><td class="mono small">{{ vers.python }}</td><td></td></tr>
           {% for mo in vers.modules %}
@@ -109,78 +187,52 @@
         </tbody>
       </table>
     </div>
-    {% if vers.others %}<p class="small muted" style="margin:8px 0 0">Weitere ältere Module im Container: {% for o in vers.others %}{{ o.name }} {{ o.version }} → {{ o.latest }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
-    <p class="small muted" style="margin:8px 0 0">{% if maint.outdated_at %}Neuere Versionen geprüft {{ maint.outdated_at|seit }}. {% endif %}Python-Module werden nicht hier aktualisiert, sondern über GitHub (Dependabot schlägt sie vor). Danach „App aktualisieren“. Linux-Pakete aktualisiert die Wartung.</p>
+    {% if vers.others %}<p class="small muted" style="margin:0">Weitere ältere Module: {% for o in vers.others %}{{ o.name }} {{ o.version }} → {{ o.latest }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+    <p class="small muted" style="margin:0">Python-Module kommen über GitHub (Dependabot schlägt sie vor), danach „App aktualisieren“.</p>
   </div>
-</section>
+</details>
 
-{# ---------- Zurückrollen ---------- #}
-<section id="zurueck">
-  <h2>App-Version zurückrollen</h2>
-  {% if versions %}
-  <form method="post" action="{{ url_for('admin_job_create') }}" class="card stack">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="action" value="rollback">
-    <label>Version
-      <select name="param" required>
-        {% for v in versions %}<option value="{{ v.commit }}" {{ 'disabled' if v.current }}>{{ v.short }} · {{ v.date }} · {{ v.msg[:70] }}{{ ' (läuft jetzt)' if v.current }}</option>{% endfor %}
-      </select></label>
-    <p class="small muted" style="margin:0">Vorher wird gesichert. Die Daten bleiben erhalten. Ältere Versionen ignorieren neuere Spalten einfach. Wieder nach vorne kommst du mit „App aktualisieren“. <b>Achtung:</b> Versionen von vor der Wartungsseite haben diese Seite noch nicht, dann auf dem Server <code>./update.sh</code> ausführen.</p>
-    <label>Zur Bestätigung „{{ CONFIRM.rollback }}“ eintippen<input name="confirm" autocomplete="off" required></label>
-    <button class="btn danger" {{ 'disabled' if active }}>Zurückrollen</button>
-  </form>
-  {% else %}<div class="card"><p class="muted" style="margin:0">Noch keine Versionsliste. Erst „Auf Updates prüfen“ starten.</p></div>{% endif %}
-</section>
-
-{# ---------- Sicherungen ---------- #}
-<section id="sicherungen">
-  <h2>Sicherungen</h2>
-  {% if backups %}
-  <form method="post" action="{{ url_for('admin_job_create') }}" class="card stack">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="hidden" name="action" value="restore">
+<details class="card fold" id="verlauf">
+  <summary><b>Zeitpläne &amp; Verlauf</b><span class="muted small">{% if maint.runner_installed %}Wartungsdienst eingerichtet{% else %}Wartungsdienst fehlt{% endif %}{% if jobs %} · {{ jobs|length }} Auftr{{ "äge" if jobs|length != 1 else "ag" }}{% endif %}</span></summary>
+  <div class="stack" style="margin-top:10px">
+    {% if maint.timers %}
     <div class="flush" style="overflow-x:auto">
       <table class="log">
-        <thead><tr><th></th><th>Zeitpunkt</th><th>Art</th><th>Größe</th></tr></thead>
+        <thead><tr><th>Zeitplan</th><th>zuletzt</th><th>nächstes Mal</th></tr></thead>
         <tbody>
-        {% for b in backups %}
-          <tr><td><input type="radio" name="param" value="{{ b.file }}" id="bk{{ loop.index }}" required aria-label="{{ b.file }}"></td>
-            <td><label for="bk{{ loop.index }}">{{ b.at|seit }}</label></td>
-            <td><span class="pill {{ 'gold' if b.kind == 'neubau' else 'open' }}">{{ {'taeglich': 'täglich', 'neubau': 'vor Neubau', 'manuell': 'manuell', 'vor-wiederherstellung': 'vor Einspielen'}[b.kind] or b.kind }}</span></td>
-            <td class="small muted">{{ b.size }}</td></tr>
+        {% for key, label in (('backup', 'Sicherung'), ('pruefen', 'Update-Prüfung'), ('wartung', 'Alles aktualisieren')) %}{% set t = maint.timers[key] or {} %}
+          <tr><td>{{ label }}{% if not t.active %} <span class="pill av-nein">aus</span>{% endif %}</td>
+            <td class="small">{{ t.last|termin }}</td><td class="small">{{ t.next|termin }}</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
-    <p class="small muted" style="margin:0">Ordner <code>{{ maint.backup_dir }}</code>{% if maint.backup_dir_mounted %} (eigenes Laufwerk){% endif %}. Es bleiben: tägliche {{ maint.keep.taeglich_tage if maint.keep else 14 }} Tage, vor Neubau die letzten {{ maint.keep.neubau if maint.keep else 3 }}, manuelle die letzten {{ maint.keep.manuell if maint.keep else 5 }}.</p>
-    <p class="small" style="margin:0"><b>Einspielen ersetzt alle aktuellen Daten</b> (Benutzer, Termine, Ergebnisse, Profilbilder) durch den Stand der Sicherung. Vorher wird der jetzige Stand noch einmal gesichert. Danach musst du dich eventuell neu anmelden.</p>
-    <label>Zur Bestätigung „{{ CONFIRM.restore }}“ eintippen<input name="confirm" autocomplete="off" required></label>
-    <button class="btn danger" {{ 'disabled' if active }}>Sicherung einspielen</button>
-  </form>
-  {% else %}<div class="card"><p class="muted" style="margin:0">Noch keine Sicherungen gefunden{% if maint.backup_dir %} in <code>{{ maint.backup_dir }}</code>{% endif %}.</p></div>{% endif %}
-</section>
-
-{# ---------- Verlauf ---------- #}
-{% if jobs %}
-<section>
-  <h2>Letzte Aufträge</h2>
-  <div class="card flush" style="overflow-x:auto">
-    <table class="log">
-      <thead><tr><th>Wann</th><th>Aktion</th><th class="hide-sm">von</th><th>Ergebnis</th></tr></thead>
-      <tbody>
-      {% for j in jobs %}
-        <tr><td class="small"><a href="{{ url_for('admin_maintenance', auftrag=j.id) }}#auftrag">{{ (j.started or j.requested)|seit }}</a></td>
-          <td>{{ ACTIONS[j.action][0] if j.action in ACTIONS else j.action }}{% if j.param %} <span class="muted small mono">{{ j.param[:7] if j.action == 'rollback' else '' }}</span>{% endif %}</td>
-          <td class="hide-sm small muted">{{ j.by }}</td>
-          <td><span class="pill job-{{ j.state }}">{{ STATES.get(j.state, j.state) }}</span></td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    {% endif %}
+    {% if jobs %}
+    <div class="flush" style="overflow-x:auto">
+      <table class="log">
+        <thead><tr><th>Wann</th><th>Aktion</th><th class="hide-sm">von</th><th>Ergebnis</th></tr></thead>
+        <tbody>
+        {% for j in jobs %}
+          <tr><td class="small"><a href="{{ url_for('admin_maintenance', auftrag=j.id) }}#auftrag">{{ (j.started or j.requested)|seit }}</a></td>
+            <td>{{ ACTIONS[j.action][0] if j.action in ACTIONS else j.action }}{% if j.param and j.action == 'rollback' %} <span class="muted small mono">{{ j.param[:7] }}</span>{% endif %}</td>
+            <td class="hide-sm small muted">{{ j.by }}</td>
+            <td><span class="pill job-{{ j.state }}">{{ STATES.get(j.state, j.state) }}</span></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    <p class="small muted" style="margin:0">Letzte Prüfung {{ maint.checked_at|seit if maint.checked_at else '–' }} · letztes App-Update {{ maint.last_update|seit if maint.last_update else '–' }}{% if maint.last_restore %} · zuletzt eingespielt {{ maint.last_restore|seit }}{% endif %}{% if maint.snapshot_at %} · Stand {{ maint.snapshot_at|seit }}{% endif %}</p>
   </div>
-</section>
-{% endif %}
+</details>
+</div>
 
 <script>
+(function () {   // per Link (#sicherungen, #zurueck …) direkt aufgeklappt öffnen
+  function openHash() { var d = location.hash && document.querySelector('details' + location.hash); if (d) d.open = true; }
+  openHash(); window.addEventListener('hashchange', openHash);
+})();
 (function () {
   var box = document.querySelector('.job-live');
   if (!box) return;

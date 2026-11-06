@@ -1935,7 +1935,9 @@ def admin_maintenance():
     if show is None and active:
         show = job_detail(active["id"])
     versions = [v for v in maint.get("versions") or [] if isinstance(v, dict)]
-    return render_template("wartung.html", maint=maint, jobs=jobs, active=active, show=show,
+    server = server_info()
+    return render_template("wartung.html", maint=maint, jobs=jobs, active=active, show=show, server=server,
+                           warnings=server_warnings(server, maint or None),
                            versions=versions, backups=[b for b in maint.get("backups") or [] if isinstance(b, dict)],
                            vers=module_versions(maint), built=image_built_at(), ACTIONS=JOB_ACTIONS,
                            CONFIRM=JOB_CONFIRM, STATES=JOB_STATES, runner=os.path.isdir(os.path.join(JOBS_DIR, "queue")))
@@ -1986,6 +1988,55 @@ def admin_job_create():
     return redirect(url_for("admin_maintenance", auftrag=jid) + "#auftrag")
 
 
+def server_info():
+    """Laufzeitdaten des Servers (Admin-Übersicht und Wartungsseite)."""
+    import platform
+    import shutil
+    import flask
+    now = datetime.now()
+    data_dir = os.path.dirname(DB_PATH)
+    disk = shutil.disk_usage(data_dir)
+    up = now - STARTED_AT
+    return {
+        "uptime": f"{up.days} T. {up.seconds // 3600} Std." if up.days else f"{up.seconds // 3600} Std. {up.seconds % 3600 // 60} Min.",
+        "started": STARTED_AT.strftime("%d.%m.%Y %H:%M"),
+        "db": _size(DB_PATH), "avatars": _size(AVATAR_DIR) if os.path.isdir(AVATAR_DIR) else 0,
+        "disk_free": disk.free, "disk_total": disk.total, "disk_pct": round(100 * disk.used / disk.total) if disk.total else 0,
+        "python": platform.python_version(), "flask": flask.__version__, "sqlite": sqlite3.sqlite_version,
+        "built": image_built_at(),
+        "host": platform.node(), "https": request.is_secure, "cookie_secure": app.config["SESSION_COOKIE_SECURE"],
+        "secret_env": bool(os.environ.get("SECRET_KEY")) and os.environ.get("SECRET_KEY") != "bitte-aendern",
+    }
+
+
+def server_warnings(server, maint):
+    """Hinweise zu Server und Wartung (für den Block „Server & Wartung“ und die Wartungsseite)."""
+    warnings = []
+    if maint:
+        if maint["backup_age_h"] is None or maint["backup_age_h"] > 36:
+            warnings.append("Die letzte Sicherung ist älter als 36 Stunden. Auf dem Server prüfen: ./scripts/status.sh")
+        if maint.get("pending_security"):
+            warnings.append(f"{maint['pending_security']} Sicherheitsupdates für Linux stehen aus. Sie werden nachts automatisch "
+                            "installiert, sofort unter Wartung → Linux-Updates installieren.")
+        if maint.get("reboot_required"):
+            warnings.append("Der Server braucht einen Neustart (Kernel-Update). Automatisch um 04:30 oder sofort unter Wartung → Server neu starten.")
+        for p_ in maint["problems"]:
+            warnings.append(f"Letzte Wartung: {p_}")
+    if not server["secret_env"]:
+        warnings.append("SECRET_KEY ist nicht in der .env gesetzt. Die App nutzt einen automatisch erzeugten Schlüssel (funktioniert, "
+                        "besser einen eigenen setzen: openssl rand -hex 32).")
+    if not server["https"]:
+        warnings.append("Die App erkennt kein HTTPS. Läuft sie hinter Cloudflare Tunnel oder einem Reverse Proxy: in der .env "
+                        "TRUST_PROXY=1 und COOKIE_SECURE=1 setzen. Sonst einen Reverse Proxy mit HTTPS einrichten.")
+    elif not server["cookie_secure"]:
+        warnings.append("HTTPS ist aktiv, aber COOKIE_SECURE=1 ist in der .env noch nicht gesetzt.")
+    if server["disk_pct"] >= 90:
+        warnings.append(f"Der Speicher ist zu {server['disk_pct']} % voll.")
+    if q("SELECT 1 FROM users WHERE role='admin' AND must_change_pw=1", one=True):
+        warnings.append("Ein Admin-Konto hat noch das Startpasswort.")
+    return warnings
+
+
 @app.route("/admin/wartung/auftrag/<jid>.json")
 @admin_required
 def admin_job_status(jid):
@@ -2018,19 +2069,7 @@ def admin_dashboard():
         (SELECT COUNT(*) FROM training_slots WHERE active=1 AND once_date IS NULL) slots""",
               (week_ago, day_ago, day_ago, week_ago, date.today().isoformat()), one=True)
     errors = q("""SELECT e.*, u.name FROM error_log e LEFT JOIN users u ON u.id=e.user_id ORDER BY e.id DESC LIMIT 10""")
-    data_dir = os.path.dirname(DB_PATH)
-    disk = shutil.disk_usage(data_dir)
-    up = now - STARTED_AT
-    server = {
-        "uptime": f"{up.days} T. {up.seconds // 3600} Std." if up.days else f"{up.seconds // 3600} Std. {up.seconds % 3600 // 60} Min.",
-        "started": STARTED_AT.strftime("%d.%m.%Y %H:%M"),
-        "db": _size(DB_PATH), "avatars": _size(AVATAR_DIR) if os.path.isdir(AVATAR_DIR) else 0,
-        "disk_free": disk.free, "disk_total": disk.total, "disk_pct": round(100 * disk.used / disk.total) if disk.total else 0,
-        "python": platform.python_version(), "flask": flask.__version__, "sqlite": sqlite3.sqlite_version,
-        "built": image_built_at(),
-        "host": platform.node(), "https": request.is_secure, "cookie_secure": app.config["SESSION_COOKIE_SECURE"],
-        "secret_env": bool(os.environ.get("SECRET_KEY")) and os.environ.get("SECRET_KEY") != "bitte-aendern",
-    }
+    server = server_info()
     todo = {
         "never": q("SELECT id, name FROM users WHERE active=1 AND last_login IS NULL AND role<>'admin' ORDER BY name"),
         "moves": q("""SELECT mv.*, m.opponent, t.name team_name FROM match_moves mv JOIN matches m ON m.id=mv.match_id
@@ -2040,30 +2079,8 @@ def admin_dashboard():
                           ORDER BY m.date DESC LIMIT 10""", (date.today().isoformat(), (date.today() - timedelta(days=60)).isoformat())),
         "no_leader": q("SELECT id, name FROM teams WHERE leader_id IS NULL ORDER BY name"),
     }
-    warnings = []
     maint = maintenance_status()
-    if maint:
-        if maint["backup_age_h"] is None or maint["backup_age_h"] > 36:
-            warnings.append("Die letzte Sicherung ist älter als 36 Stunden. Auf dem Server prüfen: ./scripts/status.sh")
-        if maint.get("pending_security"):
-            warnings.append(f"{maint['pending_security']} Sicherheitsupdates für Linux stehen aus. Sie werden nachts automatisch "
-                            "installiert, sofort unter Wartung → Linux-Updates installieren.")
-        if maint.get("reboot_required"):
-            warnings.append("Der Server braucht einen Neustart (Kernel-Update). Automatisch um 04:30 oder sofort unter Wartung → Server neu starten.")
-        for p_ in maint["problems"]:
-            warnings.append(f"Letzte Wartung: {p_}")
-    if not server["secret_env"]:
-        warnings.append("SECRET_KEY ist nicht in der .env gesetzt. Die App nutzt einen automatisch erzeugten Schlüssel (funktioniert, "
-                        "besser einen eigenen setzen: openssl rand -hex 32).")
-    if not server["https"]:
-        warnings.append("Die App erkennt kein HTTPS. Läuft sie hinter Cloudflare Tunnel oder einem Reverse Proxy: in der .env "
-                        "TRUST_PROXY=1 und COOKIE_SECURE=1 setzen. Sonst einen Reverse Proxy mit HTTPS einrichten.")
-    elif not server["cookie_secure"]:
-        warnings.append("HTTPS ist aktiv, aber COOKIE_SECURE=1 ist in der .env noch nicht gesetzt.")
-    if server["disk_pct"] >= 90:
-        warnings.append(f"Der Speicher ist zu {server['disk_pct']} % voll.")
-    if q("SELECT 1 FROM users WHERE role='admin' AND must_change_pw=1", one=True):
-        warnings.append("Ein Admin-Konto hat noch das Startpasswort.")
+    warnings = server_warnings(server, maint)
     return render_template("admin_home.html", online=online, logins=logins, stats=stats, errors=errors, maint=maint,
                            server=server, todo=todo, warnings=warnings)
 

@@ -46,7 +46,7 @@
       <tbody>
       {% for u in users %}
         <tr class="{{ 'inactive' if not u.active }}">
-          <td class="sel">{% if u.id != me.id %}<input type="checkbox" name="ids" value="{{ u.id }}" class="sel-one" aria-label="{{ u.name }} auswählen">{% endif %}</td>
+          <td class="sel"><input type="checkbox" name="ids" value="{{ u.id }}" class="sel-one" aria-label="{{ u.name }} auswählen"{% if u.id == me.id %} title="Eigenes Konto: nur Namen tauschen wirkt hier"{% endif %}></td>
           <td><a class="strong" href="{{ url_for('user_edit', uid=u.id) }}">{{ u.name }}</a><div class="muted small">{{ u.username }}{% if u.player_id %} · ID {{ u.player_id }}{% endif %}{% if u.pass_nr %} · Pass {{ u.pass_nr }}{% endif %}{% if u.club %} · {{ u.club }}{% endif %}</div>
             {% if not u.active %}<div class="small"><span class="pill av-nein">gesperrt</span>{% if u.locked_at %} <span class="muted">seit {{ u.locked_at[:10]|datum }}</span>{% endif %}{% if u.lock_reason %} · {{ u.lock_reason }}{% endif %}</div>{% endif %}
             {% if u.temp_locked %}<div class="small" style="margin-top:4px"><span class="pill av-vielleicht">10 Fehlversuche</span>

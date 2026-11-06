@@ -33,7 +33,7 @@
     <details class="usermenu">
       <summary>
         {% if me.avatar %}<img class="avatar sm" src="{{ url_for('avatar', uid=me.id, v=me.avatar) }}" alt="">{% else %}<span class="avatar sm initials">{{ me.name[:1] }}</span>{% endif %}
-        <span class="hide-sm">{{ me.name.split(' ')[0] }}</span>
+        <span class="hide-sm">{{ me|vorname }}</span>
       </summary>
       {% macro mi(href, icon, label, on=False, cls='') %}<a href="{{ href }}" class="mi {{ 'on' if on }} {{ cls }}"><svg viewBox="0 0 24 24" aria-hidden="true">{{ ICONS[icon]|safe }}</svg><span>{{ label }}</span></a>{% endmacro %}
       <div class="menu">

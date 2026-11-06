@@ -2,7 +2,7 @@
 {% from "_agenda.html" import agenda_days with context %}
 {% block title %}Übersicht{% endblock %}
 {% block content %}
-<h1>Hallo, {{ me.name.split(' ')[0] }}</h1>
+<h1>Hallo, {{ me|vorname }}</h1>
 
 <div class="agenda-summary">
   <span class="muted small">Diese Woche:</span>

@@ -2,7 +2,7 @@
 {% block title %}Verwaltung{% endblock %}
 {% block content %}
 <div class="head-row">
-  <h1>Hallo, {{ me.name.split(' ')[0] }}</h1>
+  <h1>Hallo, {{ me|vorname }}</h1>
   <a class="btn small-btn" href="{{ url_for('schedule') }}">Termine ansehen</a>
 </div>
 

@@ -351,6 +351,7 @@ MIGRATIONS = [
     ("teams", "rank", "INTEGER"),                         # Rang im Verein (1 = höchste Klasse), leer = aus dem Namen
     ("teams", "max_starts", "INTEGER NOT NULL DEFAULT 10"),  # Einsätze pro Saison (RWK VII.4: 10, bei 7er-Gruppen 12)
     ("matches", "relegation", "INTEGER NOT NULL DEFAULT 0"),  # Auf-/Abstiegskampf (zählt nicht, RWK VII.4/6)
+    ("users", "first_name", "TEXT NOT NULL DEFAULT ''"),   # Vorname für Begrüßung (leer = aus dem Namen)
     ("users", "cal_seen", "TEXT"),                         # letzter Abruf des Kalender-Abos
     ("users", "cal_client", "TEXT NOT NULL DEFAULT ''"),  # wer abgerufen hat (Google, Apple, Outlook …)                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
     ("lineup", "lane", "INTEGER"),                         # Stand
@@ -1576,7 +1577,38 @@ def temp_locked_names():
                                          GROUP BY lower(username) HAVING COUNT(*)>=?""", (since, MAX_FAILED_LOGINS))}
 
 
+def tidy_name(name):
+    """'Müller, Jens' -> ('Jens Müller', 'Jens'); sonst unverändert, Vorname = erstes Wort."""
+    name = " ".join((name or "").split())
+    if "," in name:
+        last, _, first = name.partition(",")
+        first, last = first.strip(), last.strip()
+        if first and last:
+            return f"{first} {last}", first.split()[0]
+    return name, (name.split()[0] if name else "")
+
+
+def swap_name(name):
+    """Vor- und Nachname tauschen: 'Müller Jens' -> 'Jens Müller', 'Müller, Jens' -> 'Jens Müller'."""
+    name = " ".join((name or "").split())
+    if "," in name:
+        return tidy_name(name)[0]
+    parts = name.split(" ", 1)
+    return f"{parts[1]} {parts[0]}" if len(parts) == 2 else name
+
+
+@app.template_filter("vorname")
+def first_name_of(u):
+    """Vorname für die Begrüßung: eingetragen, sonst aus 'Nachname, Vorname', sonst das erste Wort."""
+    if not u:
+        return ""
+    if u["first_name"]:
+        return u["first_name"]
+    return tidy_name(u["name"])[1]
+
+
 BULK_ACTIONS = {"sperren": "Sperren", "entsperren": "Entsperren", "loeschen": "Endgültig löschen",
+                "namen_tauschen": "Vor- und Nachname tauschen",
                 **{f"rolle_{k}": f"Rolle: {v}" for k, v in ROLES.items()}}
 
 
@@ -1586,8 +1618,9 @@ def users_bulk():
     """Mehrere Benutzer auf einmal sperren, entsperren, löschen oder eine Rolle geben."""
     back = safe_next(request.form.get("back"), url_for("users"))
     me_id = current_user()["id"]
-    ids = [i for i in {int(x) for x in request.form.getlist("ids") if x.isdigit()} if i != me_id]
     act = request.form.get("action", "")
+    # sich selbst sperren/löschen/herabstufen geht nicht; den eigenen Namen drehen schon
+    ids = [i for i in {int(x) for x in request.form.getlist("ids") if x.isdigit()} if i != me_id or act == "namen_tauschen"]
     if not ids or act not in BULK_ACTIONS:
         flash("Bitte Benutzer und eine Aktion auswählen." if not ids else "Unbekannte Aktion.", "error")
         return redirect(back)
@@ -1596,6 +1629,13 @@ def users_bulk():
         return redirect(back)
     marks = ",".join("?" * len(ids))
     conn = db()
+    if act == "namen_tauschen":
+        conn = db()
+        for uid_, nm in conn.execute(f"SELECT id, name FROM users WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
+            conn.execute("UPDATE users SET name=?, first_name='' WHERE id=?", (swap_name(nm), uid_))
+        conn.commit()
+        flash(f"Bei {len(ids)} Benutzer{'n' if len(ids) != 1 else ''} Vor- und Nachname getauscht.", "ok")
+        return redirect(back)
     if act == "sperren":
         conn.execute(f"UPDATE users SET active=0, locked_at=?, pw_ver=pw_ver+1 WHERE active=1 AND id IN ({marks})",
                      [datetime.now().isoformat(timespec="seconds")] + ids)
@@ -1657,7 +1697,9 @@ def user_edit(uid=None):
     if uid and not user:
         abort(404)
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
+        name, guessed = tidy_name(request.form.get("name", ""))
+        first = " ".join(request.form.get("first_name", "").split())[:40]
+        first = "" if first == guessed else first     # nur speichern, wenn es vom Namen abweicht
         username = request.form.get("username", "").strip()
         role = request.form.get("role", "shooter")
         active = user["active"] if user else 1   # Sperren/Entsperren über eigene Knöpfe
@@ -1681,9 +1723,9 @@ def user_edit(uid=None):
         else:
             if user:
                 ex("""UPDATE users SET name=?, username=?, role=?, active=?, player_id=?, pass_nr=?, club=?,
-                      birth_year=?, gender=? WHERE id=?""",
+                      birth_year=?, gender=?, first_name=? WHERE id=?""",
                    (name, username, role, active, extra["player_id"], extra["pass_nr"], extra["club"],
-                    extra["birth_year"], extra["gender"], uid))
+                    extra["birth_year"], extra["gender"], first, uid))
                 if pw:
                     ex("UPDATE users SET password_hash=?, must_change_pw=1, pw_ver=pw_ver+1 WHERE id=?",
                        (generate_password_hash(pw), uid))
@@ -1693,8 +1735,8 @@ def user_edit(uid=None):
                 flash("Benutzer gespeichert.", "ok")
             else:
                 new_uid = ex("""INSERT INTO users (name, username, role, active, password_hash, must_change_pw, player_id, pass_nr, club,
-                      birth_year, gender) VALUES (?,?,?,?,?,1,?,?,?,?,?)""", (name, username, role, active, generate_password_hash(pw),
-                                                    extra["player_id"], extra["pass_nr"], extra["club"], extra["birth_year"], extra["gender"]))
+                      birth_year, gender, first_name) VALUES (?,?,?,?,?,1,?,?,?,?,?,?)""", (name, username, role, active, generate_password_hash(pw),
+                                                    extra["player_id"], extra["pass_nr"], extra["club"], extra["birth_year"], extra["gender"], first))
                 save_user_groups(new_uid)
                 flash(f"Benutzer {name} angelegt. Beim ersten Login muss das Passwort geändert werden.", "ok")
             return redirect(url_for("users"))
@@ -3703,6 +3745,9 @@ def csv_import(kind):
                     updated += 1
                 continue
             name = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
+            name, guessed = tidy_name(name)
+            first = (rec.get("vorname") or "").strip()
+            first = "" if first == guessed else first[:40]
             if not name:
                 skipped += 1
                 continue
@@ -3714,17 +3759,18 @@ def csv_import(kind):
             if old:
                 conn.execute("""UPDATE users SET player_id=COALESCE(NULLIF(?, ''), player_id),
                                 pass_nr=COALESCE(NULLIF(?, ''), pass_nr), club=COALESCE(NULLIF(?, ''), club),
-                                birth_year=COALESCE(NULLIF(?, ''), birth_year), gender=COALESCE(NULLIF(?, ''), gender) WHERE id=?""",
+                                birth_year=COALESCE(NULLIF(?, ''), birth_year), gender=COALESCE(NULLIF(?, ''), gender),
+                                first_name=COALESCE(NULLIF(?, ''), first_name) WHERE id=?""",
                              (rec.get("player_id", ""), rec.get("pass_nr", ""), rec.get("club", ""),
-                              norm_year(rec.get("birth_year")), norm_gender(rec.get("gender")), old["id"]))
+                              norm_year(rec.get("birth_year")), norm_gender(rec.get("gender")), first, old["id"]))
                 updated += 1
             else:
                 username = make_username(name)
                 pw = secrets.token_urlsafe(6)
                 conn.execute("""INSERT INTO users (name, username, password_hash, role, must_change_pw, player_id, pass_nr, club,
-                                birth_year, gender) VALUES (?,?,?,'shooter',1,?,?,?,?,?)""",
+                                birth_year, gender, first_name) VALUES (?,?,?,'shooter',1,?,?,?,?,?,?)""",
                              (name, username, generate_password_hash(pw), rec.get("player_id", ""),
-                              rec.get("pass_nr", ""), rec.get("club", ""), norm_year(rec.get("birth_year")), norm_gender(rec.get("gender"))))
+                              rec.get("pass_nr", ""), rec.get("club", ""), norm_year(rec.get("birth_year")), norm_gender(rec.get("gender")), first))
                 conn.commit()
                 accounts.append({"name": name, "username": username, "password": pw})
                 created += 1

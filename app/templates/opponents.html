@@ -34,6 +34,31 @@
 </form>
 {% endif %}
 
+<nav class="filter-chips" style="margin-top:12px" aria-label="Filter">
+  {% for k, label in OPP_FILTERS.items() %}<a class="chip-f {{ 'on' if show == k }}" href="{{ url_for('opponents', zeige=k or None, q=search or None) }}">{{ label }}</a>{% endfor %}
+</nav>
+
+<form method="post" action="{{ url_for('opponents_bulk') }}" id="opp-bulk">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="back" value="{{ back }}">
+  {% if shown %}<label class="check small sel-all-line"><input type="checkbox" id="sel-all"> Alle {{ shown }} angezeigten auswählen</label>{% endif %}
+  <div class="bulk-bar card" id="bulk-bar" hidden>
+    <b id="bulk-count">0 ausgewählt</b>
+    <select name="action" id="bulk-action" aria-label="Aktion für die Auswahl" required>
+      <option value="">Aktion wählen …</option>
+      <option value="zusammenfuehren">Zusammenführen in …</option>
+      <option value="loeschen">Löschen</option>
+    </select>
+    <select name="target_id" id="bulk-target" aria-label="Zusammenführen in Verein" hidden>
+      <option value="">Verein wählen …</option>
+      {% for o in all_clubs %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}
+    </select>
+    <input name="confirm" id="bulk-confirm" placeholder="Zum Löschen LÖSCHEN eintippen" autocomplete="off" hidden aria-label="Löschen bestätigen">
+    <button class="btn primary" id="bulk-go">Ausführen</button>
+    <button type="button" class="linkbtn small accent" id="bulk-none">Auswahl aufheben</button>
+  </div>
+</form>
+
 {% if unnamed %}
 <section class="to-assign">
   <h2>Bitte zuordnen <span class="pill av-vielleicht">{{ unnamed|length }}</span></h2>
@@ -41,7 +66,7 @@
   <div class="list">
   {% for d in unnamed %}{% set c = d.club %}
     <div class="card assign-row" id="verein-{{ c.id }}">
-      <div><b>Nr. {{ c.name }}</b> <span class="muted small">{{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}{% if d.shooters %}: {{ d.shooters[:3]|map(attribute='name')|join(', ') }}{% if d.shooters|length > 3 %} …{% endif %}{% endif %}{% if d.teams %} · {{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }}{% endif %}</span></div>
+      <div><input type="checkbox" class="sel-one" name="ids" value="{{ c.id }}" form="opp-bulk" aria-label="Nr. {{ c.name }} auswählen"> <b>Nr. {{ c.name }}</b> <span class="muted small">{{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}{% if d.shooters %}: {{ d.shooters[:3]|map(attribute='name')|join(', ') }}{% if d.shooters|length > 3 %} …{% endif %}{% endif %}{% if d.teams %} · {{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }}{% endif %}</span></div>
       <form method="post" class="assign-form">
         <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="club_id" value="{{ c.id }}">
         <select name="target_id" aria-label="Gehört zu Verein" required>
@@ -67,6 +92,7 @@
   {% set c = d.club %}
   <details class="card opp-club" id="verein-{{ c.id }}">
     <summary>
+      <input type="checkbox" class="sel-one" name="ids" value="{{ c.id }}" form="opp-bulk" aria-label="{{ c.name }} auswählen">
       <b>{{ c.name }}</b>
       <span class="muted small">{% if c.club_nr %}Nr. {{ c.club_nr }} · {% endif %}{% if c.location %}{{ c.location }} · {% endif %}{{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }} · {{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}</span>
       <span class="small accent-link">Öffnen</span>
@@ -157,10 +183,37 @@
     </div>
   </details>
   {% else %}
-  <p class="muted">{{ 'Nichts gefunden.' if search else 'Noch keine Gegner eingetragen.' }}</p>
+  {% if not unnamed %}<p class="muted">{{ 'Nichts gefunden.' if search or show else 'Noch keine Gegner eingetragen.' }}</p>{% endif %}
   {% endfor %}
 </div>
 <script>
+  (function () {   // Auswahl und Massenaktionen (wie bei den Benutzern)
+    var form = document.getElementById('opp-bulk'), all = document.getElementById('sel-all'), bar = document.getElementById('bulk-bar'),
+        count = document.getElementById('bulk-count'), act = document.getElementById('bulk-action'), conf = document.getElementById('bulk-confirm'),
+        target = document.getElementById('bulk-target'), go = document.getElementById('bulk-go'),
+        boxes = Array.prototype.slice.call(document.querySelectorAll('.sel-one'));
+    if (!boxes.length) return;
+    boxes.forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); }); });   // nicht auf-/zuklappen
+    function sync() {
+      var n = boxes.filter(function (b) { return b.checked; }).length;
+      bar.hidden = n === 0;
+      count.textContent = n + ' ausgewählt';
+      if (all) { all.checked = n === boxes.length; all.indeterminate = n > 0 && n < boxes.length; }
+      var del = act.value === 'loeschen', mrg = act.value === 'zusammenfuehren';
+      conf.hidden = !del; conf.required = del; target.hidden = !mrg; target.required = mrg;
+      go.textContent = del ? n + ' löschen' : mrg ? 'Zusammenführen' : 'Ausführen';
+      go.classList.toggle('danger', del); go.classList.toggle('primary', !del);
+    }
+    if (all) all.addEventListener('change', function () { boxes.forEach(function (b) { b.checked = all.checked; }); sync(); });
+    boxes.forEach(function (b) { b.addEventListener('change', sync); });
+    act.addEventListener('change', sync);
+    document.getElementById('bulk-none').addEventListener('click', function () { boxes.forEach(function (b) { b.checked = false; }); sync(); });
+    form.addEventListener('submit', function (e) {
+      if (act.value === 'loeschen' && conf.value.trim().toUpperCase() !== 'LÖSCHEN') { e.preventDefault(); conf.focus(); return; }
+      if (act.value === 'zusammenfuehren' && !confirm('Die ausgewählten Vereine in „' + target.options[target.selectedIndex].text + '“ zusammenführen? Mannschaften, Schützen und Wettkämpfe wandern mit.')) e.preventDefault();
+    });
+    sync();
+  })();
   // Nach dem Speichern den zuletzt bearbeiteten Verein wieder aufklappen
   (function () { var el = location.hash && document.querySelector(location.hash); if (el && el.tagName === 'DETAILS') { el.open = true; el.scrollIntoView(); } })();
 </script>

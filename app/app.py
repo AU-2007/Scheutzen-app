@@ -3263,6 +3263,7 @@ def opponents():
         conn.commit()
         return redirect(url_for("opponents", q=request.args.get("q") or None) + anchor)
     search = request.args.get("q", "").strip()
+    show = request.args.get("zeige", "") if request.args.get("zeige", "") in OPP_FILTERS else ""
     clubs = q("SELECT * FROM opp_clubs ORDER BY name COLLATE NOCASE")
     teams = q("""SELECT ot.*, (SELECT COUNT(*) FROM matches m WHERE m.opp_team_id=ot.id) matches
                  FROM opp_teams ot ORDER BY ot.name COLLATE NOCASE""")
@@ -3274,12 +3275,58 @@ def opponents():
         if search and search.lower() not in (c["name"] + " " + c["location"] + " " + c["club_nr"] + " " +
                                               " ".join(x["name"] for x in cs)).lower():
             continue
+        if (show == "nummer" and not is_club_nr(c["name"])) or (show == "ohne_mannschaft" and ct) \
+                or (show == "ohne_schuetzen" and cs) or (show == "ungenutzt" and any(t["matches"] for t in ct)):
+            continue
         data.append({"club": c, "teams": ct, "shooters": cs, "unnamed": is_club_nr(c["name"]),
                      "team_names": {t["id"]: t["name"] or "–" for t in ct}})
     unnamed = [d for d in data if d["unnamed"]]
     named = [d for d in data if not d["unnamed"]]
     return render_template("opponents.html", data=named, unnamed=unnamed, search=search, total=len(clubs),
-                           disciplines=DISCIPLINES, all_clubs=[c for c in clubs if not is_club_nr(c["name"])])
+                           disciplines=DISCIPLINES, all_clubs=[c for c in clubs if not is_club_nr(c["name"])],
+                           show=show, OPP_FILTERS=OPP_FILTERS, shown=len(named) + len(unnamed),
+                           back=request.full_path.rstrip("?"))
+
+
+OPP_FILTERS = {"": "Alle", "nummer": "Nur Nummer", "ohne_mannschaft": "Ohne Mannschaft",
+               "ohne_schuetzen": "Ohne Schützen", "ungenutzt": "In keinem Wettkampf"}
+
+
+@app.route("/gegner/massen", methods=["POST"])
+@login_required
+def opponents_bulk():
+    """Mehrere Gegnervereine auf einmal löschen oder zu einem zusammenführen."""
+    if not can_edit_opponents():
+        abort(403)
+    back = safe_next(request.form.get("back"), url_for("opponents"))
+    ids = sorted({int(x) for x in request.form.getlist("ids") if x.isdigit()})
+    act = request.form.get("action", "")
+    conn = db()
+    ids = [r[0] for r in conn.execute(f"SELECT id FROM opp_clubs WHERE id IN ({','.join('?' * len(ids))})", ids)] if ids else []
+    if not ids or act not in ("loeschen", "zusammenfuehren"):
+        flash("Bitte Vereine und eine Aktion auswählen.", "error")
+        return redirect(back)
+    if act == "loeschen":
+        if request.form.get("confirm", "").strip().upper() != "LÖSCHEN":
+            flash("Zum Löschen bitte LÖSCHEN in das Bestätigungsfeld tippen. Es wurde nichts gelöscht.", "error")
+            return redirect(back)
+        marks = ",".join("?" * len(ids))
+        conn.execute(f"UPDATE matches SET opp_team_id=NULL WHERE opp_team_id IN (SELECT id FROM opp_teams WHERE club_id IN ({marks}))", ids)
+        conn.execute(f"DELETE FROM opp_clubs WHERE id IN ({marks})", ids)
+        conn.commit()
+        flash(f"{len(ids)} Verein{'e' if len(ids) != 1 else ''} gelöscht. Bestehende Wettkämpfe bleiben erhalten.", "ok")
+        return redirect(back)
+    target = request.form.get("target_id", type=int)
+    t = conn.execute("SELECT id, name FROM opp_clubs WHERE id=?", (target or 0,)).fetchone()
+    if not t:
+        flash("Bitte wählen, in welchen Verein zusammengeführt wird.", "error")
+        return redirect(back)
+    sources = [i for i in ids if i != t[0]]
+    for i in sources:
+        merge_opp_clubs(conn, i, t[0])
+    conn.commit()
+    flash(f"{len(sources)} Verein{'e' if len(sources) != 1 else ''} in „{t[1]}“ zusammengeführt.", "ok")
+    return redirect(back.split("#")[0] + f"#verein-{t[0]}")
 
 
 def opponent_choices():

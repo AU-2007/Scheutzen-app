@@ -637,3 +637,7 @@ section[id] { scroll-margin-top: 120px; }
 .assign-row { display: grid; gap: 10px; }
 .assign-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .assign-form select, .assign-form input { flex: 1 1 200px; min-width: 0; width: auto; }
+.filter-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.sel-all-line { display: flex; align-items: center; gap: 8px; margin: 10px 0 8px; }
+.sel-all-line input, .sel-one { width: 18px; height: 18px; flex: none; accent-color: var(--green-2); margin: 0; }
+.opp-club > summary .sel-one { margin-right: 4px; vertical-align: middle; }

@@ -62,6 +62,10 @@ Protokolle werden nach 90 Tagen gelöscht. Läuft die App hinter einem Reverse P
 - **Gegner** (Admin, Mannschaftsführer): Jeder Gegnerverein wird einmal angelegt, mit Ort, Mannschaften (je Disziplin) und Schützen (mit Pass-Nr.). Beim Wettkampf wählt man die Gegnermannschaft aus der Liste, der Ort wird bei Auswärtskämpfen übernommen. Ein RWK-Import verknüpft passende Gegner automatisch.
 - **Import** (Verein → Daten importieren): Schützen (Name, Spieler-ID, Pass-Nr., Verein) oder Gegner aus einer CSV-Datei, zum Beispiel aus dem Stammdaten-Export des DISAG OpticScore Servers oder aus Excel. Neue Schützen bekommen ein Startpasswort, das nach dem Import einmal angezeigt wird.
 
+## Vereinswappen
+
+Das Wappen liegt in `app/static/img/` (`icon-512.png`, `icon-192.png`, `apple-touch-icon.png`, `favicon-32.png`) und erscheint oben in der Leiste, auf der Anmeldeseite, als Symbol im Browser-Tab und beim „Zum Startbildschirm hinzufügen“ am Handy. Zum Tauschen die Dateien gleichen Namens ersetzen (quadratisch, weißer Hintergrund) und „App aktualisieren“.
+
 ## Termine im Handy-Kalender
 
 Unter **Profil → Termine im Handy-Kalender → Kalender verbinden**. Die Seite erkennt das Gerät und zeigt nur den passenden Knopf:

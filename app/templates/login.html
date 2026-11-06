@@ -2,7 +2,7 @@
 {% block title %}Anmelden{% endblock %}
 {% block content %}
 <div class="login">
-  <div class="target" aria-hidden="true"></div>
+  <img class="login-logo" src="{{ url_for('static', filename='img/icon-512.png') }}" alt="Vereinswappen" width="150" height="150">
   <h1>{{ VEREIN }}</h1>
   <p class="muted">Mannschaftsverwaltung</p>
   <form method="post" class="card stack">

@@ -641,3 +641,8 @@ section[id] { scroll-margin-top: 120px; }
 .sel-all-line { display: flex; align-items: center; gap: 8px; margin: 10px 0 8px; }
 .sel-all-line input, .sel-one { width: 18px; height: 18px; flex: none; accent-color: var(--green-2); margin: 0; }
 .opp-club > summary .sel-one { margin-right: 4px; vertical-align: middle; }
+
+/* Vereinswappen */
+.brand-logo { width: 34px; height: 34px; border-radius: 8px; background: #fff; padding: 2px; flex: none; }
+.login-logo { width: 150px; height: 150px; border-radius: 22px; background: #fff; padding: 6px; display: block; margin: 0 auto 14px;
+  box-shadow: var(--shadow); }

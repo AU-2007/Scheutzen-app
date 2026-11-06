@@ -8,6 +8,7 @@ Zusätzlich kann der Admin pro Mannschaft weitere Bearbeiter eintragen,
 die dieselben Rechte wie der Mannschaftsführer dieser Mannschaft haben.
 """
 import calendar
+import json
 import os
 import re
 import secrets
@@ -1037,6 +1038,20 @@ def calendar_feed(token):
     resp.headers["Content-Disposition"] = 'inline; filename="termine.ics"'
     resp.headers["Cache-Control"] = "private, no-store"
     resp.headers["X-Robots-Tag"] = "noindex"
+    return resp
+
+
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    """Für „Zum Startbildschirm hinzufügen“: Name und Wappen des Vereins (ohne Anmeldung, keine persönlichen Daten)."""
+    club = setting("club_name") or VEREIN_NAME
+    icon = lambda n, size: {"src": url_for("static", filename=f"img/{n}"), "sizes": size, "type": "image/png", "purpose": "any"}
+    resp = app.response_class(json.dumps({
+        "name": f"{club} – Mannschaften", "short_name": club[:24], "start_url": url_for("index"), "scope": "/",
+        "display": "standalone", "background_color": "#ffffff", "theme_color": "#1f4d2e",
+        "icons": [icon("icon-192.png", "192x192"), icon("icon-512.png", "512x512")]}, ensure_ascii=False),
+        mimetype="application/manifest+json")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
 
 

@@ -3087,13 +3087,86 @@ def opp_label(club_name, team_name):
     return (club_name + (" " + team_name if team_name else "")).strip()
 
 
-def find_or_create_opp_club(conn, name, location=""):
-    r = conn.execute("SELECT id FROM opp_clubs WHERE lower(name)=lower(?)", (name.strip(),)).fetchone()
+CLUB_NR_RE = re.compile(r"^\d{4,10}$")   # Vereinsnummer, z. B. 3200005
+
+
+def is_club_nr(value):
+    return bool(CLUB_NR_RE.match((value or "").strip()))
+
+
+def norm_club(name):
+    """Vereinsnamen vergleichbar machen: 'SV Beerfurth e.V.' == 'sv beerfurth'."""
+    n = re.sub(r"\be\.?\s?v\.?$", "", (name or "").lower().strip())
+    return re.sub(r"[^a-z0-9äöüß]+", " ", n).strip()
+
+
+def match_opp_club(conn, value):
+    """Gegnerverein zu einem Wert aus einer Datei finden: Vereinsnummer oder Name. Gibt id oder None."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if is_club_nr(value):
+        r = conn.execute("SELECT id FROM opp_clubs WHERE club_nr=? OR name=? ORDER BY name=? LIMIT 1",
+                         (value, value, value)).fetchone()
+        return r[0] if r else None
+    r = conn.execute("SELECT id FROM opp_clubs WHERE lower(name)=lower(?)", (value,)).fetchone()
     if r:
-        if location:
-            conn.execute("UPDATE opp_clubs SET location=? WHERE id=? AND location=''", (location, r[0]))
         return r[0]
-    return conn.execute("INSERT INTO opp_clubs (name, location) VALUES (?,?)", (name.strip(), location)).lastrowid
+    key = norm_club(value)
+    for cid, name in conn.execute("SELECT id, name FROM opp_clubs").fetchall():
+        if key and norm_club(name) == key:
+            return cid
+    return None
+
+
+def find_or_create_opp_club(conn, name, location="", club_nr=""):
+    """Verein über Nummer oder Namen finden, sonst anlegen. Eine reine Nummer wird auch als Vereinsnummer gespeichert."""
+    name = (name or "").strip()
+    if is_club_nr(name) and not club_nr:
+        club_nr = name
+    cid = match_opp_club(conn, club_nr) if club_nr else None
+    cid = cid or match_opp_club(conn, name)
+    if cid:
+        if location:
+            conn.execute("UPDATE opp_clubs SET location=? WHERE id=? AND location=''", (location, cid))
+        if club_nr:
+            conn.execute("UPDATE opp_clubs SET club_nr=? WHERE id=? AND club_nr=''", (club_nr, cid))
+        return cid
+    return conn.execute("INSERT INTO opp_clubs (name, location, club_nr) VALUES (?,?,?)",
+                        (name or club_nr, location, club_nr)).lastrowid
+
+
+def merge_opp_clubs(conn, src, dst):
+    """Verein src in dst aufgehen lassen: Mannschaften, Schützen und Wettkampfbezüge wandern mit.
+    Gleichnamige Mannschaften/Schützen werden zusammengelegt. Danach wird src gelöscht."""
+    if src == dst:
+        return
+    S = conn.execute("SELECT * FROM opp_clubs WHERE id=?", (src,)).fetchone()
+    for t_id, t_name in conn.execute("SELECT id, name FROM opp_teams WHERE club_id=?", (src,)).fetchall():
+        twin = conn.execute("SELECT id FROM opp_teams WHERE club_id=? AND lower(name)=lower(?)", (dst, t_name)).fetchone()
+        if twin:
+            conn.execute("UPDATE matches SET opp_team_id=? WHERE opp_team_id=?", (twin[0], t_id))
+            conn.execute("UPDATE opp_shooters SET team_id=? WHERE team_id=?", (twin[0], t_id))
+            conn.execute("DELETE FROM opp_teams WHERE id=?", (t_id,))
+        else:
+            conn.execute("UPDATE opp_teams SET club_id=? WHERE id=?", (dst, t_id))
+    for sh in conn.execute("SELECT * FROM opp_shooters WHERE club_id=?", (src,)).fetchall():
+        sh = dict(zip([d[0] for d in conn.execute("SELECT * FROM opp_shooters LIMIT 0").description], sh))
+        twin = conn.execute("SELECT id FROM opp_shooters WHERE club_id=? AND lower(name)=lower(?)", (dst, sh["name"])).fetchone()
+        if twin:
+            conn.execute("""UPDATE opp_shooters SET pass_nr=COALESCE(NULLIF(pass_nr, ''), ?), player_id=COALESCE(NULLIF(player_id, ''), ?),
+                            birth_year=COALESCE(NULLIF(birth_year, ''), ?), gender=COALESCE(NULLIF(gender, ''), ?),
+                            team_id=COALESCE(team_id, ?) WHERE id=?""",
+                         (sh["pass_nr"], sh["player_id"], sh["birth_year"], sh["gender"], sh["team_id"], twin[0]))
+            conn.execute("UPDATE match_opp SET shooter_id=? WHERE shooter_id=?", (twin[0], sh["id"]))
+            conn.execute("DELETE FROM opp_shooters WHERE id=?", (sh["id"],))
+        else:
+            conn.execute("UPDATE opp_shooters SET club_id=? WHERE id=?", (dst, sh["id"]))
+    nr = S["club_nr"] if S and S["club_nr"] else (S["name"] if S and is_club_nr(S["name"]) else "")
+    if S:
+        conn.execute("UPDATE opp_clubs SET club_nr=CASE WHEN club_nr='' THEN ? ELSE club_nr END, "
+                     "location=CASE WHEN location='' THEN ? ELSE location END WHERE id=?", (nr, S["location"], dst))
+    conn.execute("DELETE FROM opp_clubs WHERE id=?", (src,))
 
 
 def find_or_create_opp_team(conn, club_id, name, discipline=""):
@@ -3119,9 +3192,17 @@ def opponents():
             if not f("name"):
                 flash("Bitte den Vereinsnamen angeben.", "error")
             elif cid:
-                conn.execute("UPDATE opp_clubs SET name=?, location=?, club_nr=? WHERE id=?",
-                             (f("name"), f("location"), f("club_nr"), cid))
-                flash("Verein gespeichert.", "ok")
+                old_c = conn.execute("SELECT name, club_nr FROM opp_clubs WHERE id=?", (cid,)).fetchone()
+                nr = f("club_nr") if "club_nr" in request.form else (old_c[1] if old_c else "")
+                if old_c and is_club_nr(old_c[0]) and not nr:
+                    nr = old_c[0]          # bisher nur Nummer: beim Benennen als Vereinsnummer behalten
+                twin = conn.execute("SELECT id FROM opp_clubs WHERE lower(name)=lower(?) AND id<>?", (f("name"), cid)).fetchone()
+                if twin:
+                    flash(f"Einen Verein „{f('name')}“ gibt es schon. Zum Zusammenlegen „Gehört zu“ benutzen.", "error")
+                else:
+                    conn.execute("UPDATE opp_clubs SET name=?, location=COALESCE(?, location), club_nr=? WHERE id=?",
+                                 (f("name"), f("location") if "location" in request.form else None, nr, cid))
+                    flash("Verein gespeichert.", "ok")
             else:
                 dupe = conn.execute("SELECT id FROM opp_clubs WHERE lower(name)=lower(?)", (f("name"),)).fetchone()
                 if dupe:
@@ -3135,6 +3216,15 @@ def opponents():
                                      (cid, f("team"), f("discipline")))
                     flash("Verein angelegt. Jetzt Mannschaften und Schützen ergänzen.", "ok")
                 anchor = f"#verein-{cid}"
+        elif act == "club_merge" and cid:
+            target = request.form.get("target_id", type=int)
+            names = {r[0]: r[1] for r in conn.execute("SELECT id, name FROM opp_clubs WHERE id IN (?,?)", (cid, target or 0))}
+            if not target or target == cid or len(names) != 2:
+                flash("Bitte den Verein wählen, zu dem dieser gehört.", "error")
+            else:
+                merge_opp_clubs(conn, cid, target)
+                flash(f"„{names[cid]}“ wurde mit „{names[target]}“ zusammengeführt.", "ok")
+                anchor = f"#verein-{target}"
         elif act == "club_delete" and cid:
             conn.execute("UPDATE matches SET opp_team_id=NULL WHERE opp_team_id IN (SELECT id FROM opp_teams WHERE club_id=?)", (cid,))
             conn.execute("DELETE FROM opp_clubs WHERE id=?", (cid,))
@@ -3181,12 +3271,15 @@ def opponents():
     for c in clubs:
         ct = [t for t in teams if t["club_id"] == c["id"]]
         cs = [x for x in shooters if x["club_id"] == c["id"]]
-        if search and search.lower() not in (c["name"] + " " + c["location"] + " " +
+        if search and search.lower() not in (c["name"] + " " + c["location"] + " " + c["club_nr"] + " " +
                                               " ".join(x["name"] for x in cs)).lower():
             continue
-        data.append({"club": c, "teams": ct, "shooters": cs,
+        data.append({"club": c, "teams": ct, "shooters": cs, "unnamed": is_club_nr(c["name"]),
                      "team_names": {t["id"]: t["name"] or "–" for t in ct}})
-    return render_template("opponents.html", data=data, search=search, total=len(clubs), disciplines=DISCIPLINES)
+    unnamed = [d for d in data if d["unnamed"]]
+    named = [d for d in data if not d["unnamed"]]
+    return render_template("opponents.html", data=named, unnamed=unnamed, search=search, total=len(clubs),
+                           disciplines=DISCIPLINES, all_clubs=[c for c in clubs if not is_club_nr(c["name"])])
 
 
 def opponent_choices():
@@ -3301,8 +3394,8 @@ def csv_import(kind):
         has_header = request.form.get("header") == "1"
         mapping = [request.form.get(f"col_{i}", "") for i in range(len(rows[0]) if rows else 0)]
         body = rows[1:] if has_header else rows
-        # Schützen-Import mit Vereinsspalte: zuerst wählen, welche Vereine übernommen werden
-        if kind == "schuetzen" and "club" in mapping:
+        # Mit Vereinsspalte: zuerst je Verein wählen, was passiert und zu welchem Gegnerverein er gehört
+        if "club" in mapping:
             ci = mapping.index("club")
             if request.form.get("clubs_chosen") != "1":
                 counts = {}
@@ -3311,16 +3404,45 @@ def csv_import(kind):
                     counts[name] = counts.get(name, 0) + 1
                 own = (setting("club_name") or VEREIN_NAME).strip().lower()
                 top = max(counts, key=counts.get) if counts else ""
-                clubs = [{"name": n, "count": c,
-                          "default": "member" if (not n or n.lower() == own or (own and (own in n.lower() or n.lower() in own))
-                                                  or (n == top and not any(k.lower() == own for k in counts))) else "skip"}
-                         for n, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))]
+                conn = db()
+                clubs = []
+                for n, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower())):
+                    if kind == "gegner":
+                        default = "opponent" if n else "skip"
+                    else:
+                        default = "member" if (not n or n.lower() == own or (own and (own in n.lower() or n.lower() in own))
+                                               or (n == top and not any(k.lower() == own for k in counts))) else "skip"
+                    clubs.append({"name": n, "count": c, "default": default, "is_nr": is_club_nr(n),
+                                  "match": match_opp_club(conn, n) if n else None})
                 return render_template("csv_import.html", kind=kind, fields=fields, preview=None, clubstep=clubs,
-                                       data=request.form.get("data", ""), header=has_header, mapping=mapping)
-            choice = {request.form.get(f"cn_{i}", "").strip().lower(): request.form.get(f"cc_{i}", "skip")
-                      for i in range(request.form.get("club_count", type=int) or 0)}
+                                       data=request.form.get("data", ""), header=has_header, mapping=mapping,
+                                       opp_clubs=q("SELECT id, name, club_nr FROM opp_clubs ORDER BY name COLLATE NOCASE"))
+            choice, target = {}, {}
+            for i in range(request.form.get("club_count", type=int) or 0):
+                key = request.form.get(f"cn_{i}", "").strip()
+                choice[key.lower()] = request.form.get(f"cc_{i}", "skip")
+                target[key.lower()] = (request.form.get(f"cv_{i}", "new"), request.form.get(f"cnew_{i}", "").strip()[:120])
         else:
-            ci, choice = None, {}
+            ci, choice, target = None, {}, {}
+        club_ids = {}
+
+        def opp_club_for(conn, value, location=""):
+            """Gegnerverein zu einem Dateiwert: gewählter bestehender Verein oder neu (mit eingetipptem Namen)."""
+            key = value.lower()
+            if key not in club_ids:
+                pick, new_name = target.get(key, ("new", ""))
+                nr = value if is_club_nr(value) else ""
+                if pick.isdigit() and conn.execute("SELECT 1 FROM opp_clubs WHERE id=?", (int(pick),)).fetchone():
+                    cid = int(pick)
+                    if nr:
+                        conn.execute("UPDATE opp_clubs SET club_nr=? WHERE id=? AND club_nr=''", (nr, cid))
+                else:
+                    cid = find_or_create_opp_club(conn, new_name or value, "", nr)
+                club_ids[key] = cid
+            if location:
+                conn.execute("UPDATE opp_clubs SET location=? WHERE id=? AND location=''", (location, club_ids[key]))
+            return club_ids[key]
+
         created, updated, skipped, accounts, as_opp = 0, 0, 0, [], 0
         conn = db()
         for r in body:
@@ -3333,10 +3455,10 @@ def csv_import(kind):
                 if pick == "skip":
                     skipped += 1
                     continue
-                if pick == "opponent":   # als Gegnerschütze beim jeweiligen Gegnerverein ablegen
+                if pick == "opponent" and kind == "schuetzen":   # als Gegnerschütze beim jeweiligen Gegnerverein ablegen
                     sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
                     if sname and rec.get("club"):
-                        cid = find_or_create_opp_club(conn, rec["club"])
+                        cid = opp_club_for(conn, rec["club"])
                         upsert_opp_shooter(conn, cid, None, sname, rec)
                         as_opp += 1
                     else:
@@ -3347,7 +3469,7 @@ def csv_import(kind):
                     skipped += 1
                     continue
                 before = conn.total_changes
-                cid = find_or_create_opp_club(conn, rec["club"], rec.get("location", ""))
+                cid = opp_club_for(conn, rec["club"], rec.get("location", ""))
                 team_id = find_or_create_opp_team(conn, cid, rec["team"]) if rec.get("team") else None
                 sname = rec.get("name") or " ".join(x for x in (rec.get("vorname"), rec.get("nachname")) if x)
                 if sname:

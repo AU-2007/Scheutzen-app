@@ -627,3 +627,13 @@ th.sel, td.sel { width: 36px; padding-right: 0; }
   .help-table td:first-child { margin-bottom: 2px; width: auto; }
 }
 section[id] { scroll-margin-top: 120px; }
+
+/* Import: Vereine zuordnen */
+.club-step { display: grid; gap: 10px; }
+.club-row { display: grid; gap: 10px; }
+.club-row-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.club-row-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; align-items: end; }
+.club-row-body [hidden] { display: none; }
+.assign-row { display: grid; gap: 10px; }
+.assign-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.assign-form select, .assign-form input { flex: 1 1 200px; min-width: 0; width: auto; }

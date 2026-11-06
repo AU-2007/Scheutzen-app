@@ -5,7 +5,10 @@
 <h1>{{ 'Schützen' if kind == 'schuetzen' else 'Gegner' }} importieren</h1>
 
 {% if clubstep %}
-<p class="muted">Die Datei enthält Schützen aus {{ clubstep|length }} Verein{{ 'en' if clubstep|length != 1 }}. Leg fest, wer als Mitglied angelegt wird. Schützen anderer Vereine kannst du als Gegnerschützen übernehmen oder weglassen.</p>
+<p class="muted">Die Datei enthält {{ clubstep|length }} Verein{{ 'e' if clubstep|length != 1 }}.
+  {% if kind == 'schuetzen' %}Leg fest, wer als Mitglied angelegt wird. Schützen anderer Vereine kannst du einem Gegnerverein zuordnen oder weglassen.
+  {% else %}Ordne jeden Verein einem vorhandenen Gegnerverein zu oder leg ihn neu an.{% endif %}
+  Steht nur eine <b>Vereinsnummer</b> in der Datei, wähl den passenden Verein oder gib ihm einen Namen. Die Nummer wird gespeichert und beim nächsten Import automatisch erkannt.</p>
 <form method="post">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="step" value="save">
@@ -14,36 +17,64 @@
   {% if header %}<input type="hidden" name="header" value="1">{% endif %}
   {% for f in mapping %}<input type="hidden" name="col_{{ loop.index0 }}" value="{{ f }}">{% endfor %}
   <textarea name="data" hidden>{{ data }}</textarea>
-  <div class="card flush">
-    <table class="club-pick">
-      <thead><tr><th>Verein</th><th class="num">Schützen</th><th>Übernehmen als</th></tr></thead>
-      <tbody>
-      {% for c in clubstep %}
-        <tr>
-          <td>{{ c.name or '(ohne Verein)' }}<input type="hidden" name="cn_{{ loop.index0 }}" value="{{ c.name }}"></td>
-          <td class="num">{{ c.count }}</td>
-          <td><select name="cc_{{ loop.index0 }}" aria-label="{{ c.name or 'ohne Verein' }} übernehmen als">
-            <option value="member" {{ 'selected' if c.default == 'member' }}>Mitglieder (Benutzer)</option>
-            {% if c.name %}<option value="opponent">Gegnerschützen</option>{% endif %}
+  <div class="club-step">
+    {% for c in clubstep %}{% set i = loop.index0 %}
+    <div class="card club-row" data-row>
+      <div class="club-row-head">
+        <b>{{ c.name or '(ohne Verein)' }}</b>{% if c.is_nr %} <span class="pill open">Vereinsnummer</span>{% endif %}
+        <span class="muted small">{{ c.count }} Schütze{{ 'n' if c.count != 1 }}</span>
+        <input type="hidden" name="cn_{{ i }}" value="{{ c.name }}">
+      </div>
+      <div class="club-row-body">
+        <label>Übernehmen als
+          <select name="cc_{{ i }}" data-mode>
+            {% if kind == 'schuetzen' %}<option value="member" {{ 'selected' if c.default == 'member' }}>Mitglieder (Benutzer)</option>{% endif %}
+            {% if c.name %}<option value="opponent" {{ 'selected' if c.default == 'opponent' }}>Gegnerschützen</option>{% endif %}
             <option value="skip" {{ 'selected' if c.default == 'skip' }}>Nicht importieren</option>
-          </select></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+          </select></label>
+        {% if c.name %}
+        <label data-opp>Gegnerverein
+          <select name="cv_{{ i }}" data-target>
+            <option value="new" {{ 'selected' if not c.match }}>+ Neu anlegen</option>
+            {% for o in opp_clubs %}<option value="{{ o.id }}" {{ 'selected' if c.match == o.id }}>{{ o.name }}{% if o.club_nr and o.club_nr != o.name %} ({{ o.club_nr }}){% endif %}</option>{% endfor %}
+          </select></label>
+        <label data-new>Name des neuen Vereins
+          <input name="cnew_{{ i }}" value="{{ '' if c.is_nr else c.name }}" placeholder="{{ 'z. B. SV Beerfurth' if c.is_nr else '' }}" {{ 'required' if c.is_nr and not c.match }}></label>
+        {% if c.match %}<p class="small ok-text" style="margin:0" data-hint>Erkannt: gehört zu einem vorhandenen Gegnerverein.</p>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
   </div>
   <div class="inline wrap" style="margin-top:12px">
     <button type="button" class="btn small-btn" data-all="skip">Alle auf „Nicht importieren“</button>
   </div>
-  <p class="muted small">Vorauswahl: euer Verein (laut Vereinsdaten) bzw. der häufigste Verein als Mitglieder, alle anderen werden nicht importiert.</p>
+  {% if kind == 'schuetzen' %}<p class="muted small">Vorauswahl: euer Verein (laut Vereinsdaten) bzw. der häufigste Verein als Mitglieder, alle anderen werden nicht importiert.</p>{% endif %}
   <div class="inline" style="margin-top:14px">
     <button class="btn primary">Importieren</button>
     <a class="btn" href="{{ url_for('csv_import', kind=kind) }}">Andere Datei</a>
   </div>
 </form>
 <script>
+  // Felder nur zeigen, wenn sie gebraucht werden
+  function syncRow(row) {
+    var mode = row.querySelector('[data-mode]').value, t = row.querySelector('[data-target]');
+    var opp = row.querySelector('[data-opp]'), neu = row.querySelector('[data-new]');
+    if (opp) opp.hidden = mode !== 'opponent';
+    var hint = row.querySelector("[data-hint]"); if (hint) hint.hidden = mode !== "opponent";
+    if (neu) {
+      neu.hidden = mode !== 'opponent' || (t && t.value !== 'new');
+      var inp = neu.querySelector('input');
+      inp.required = !neu.hidden && !!inp.getAttribute('placeholder');
+    }
+  }
+  document.querySelectorAll('[data-row]').forEach(function (row) {
+    row.addEventListener('change', function () { syncRow(row); }); syncRow(row);
+  });
   document.querySelectorAll('[data-all]').forEach(function (b) {
-    b.addEventListener('click', function () { document.querySelectorAll('.club-pick select').forEach(function (s) { s.value = b.dataset.all; }); });
+    b.addEventListener('click', function () {
+      document.querySelectorAll('[data-row]').forEach(function (row) { row.querySelector('[data-mode]').value = b.dataset.all; syncRow(row); });
+    });
   });
 </script>
 {% elif not preview %}

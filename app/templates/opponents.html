@@ -34,13 +34,41 @@
 </form>
 {% endif %}
 
+{% if unnamed %}
+<section class="to-assign">
+  <h2>Bitte zuordnen <span class="pill av-vielleicht">{{ unnamed|length }}</span></h2>
+  <p class="muted small" style="margin-top:-4px">Diese Vereine kamen nur mit ihrer <b>Vereinsnummer</b> aus einer Datei. Wähl, zu welchem Verein sie gehören: Schützen und Mannschaften wandern mit, die Nummer wird gespeichert und beim nächsten Import automatisch erkannt. Ist es ein neuer Verein, gib ihm einfach einen Namen.</p>
+  <div class="list">
+  {% for d in unnamed %}{% set c = d.club %}
+    <div class="card assign-row" id="verein-{{ c.id }}">
+      <div><b>Nr. {{ c.name }}</b> <span class="muted small">{{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}{% if d.shooters %}: {{ d.shooters[:3]|map(attribute='name')|join(', ') }}{% if d.shooters|length > 3 %} …{% endif %}{% endif %}{% if d.teams %} · {{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }}{% endif %}</span></div>
+      <form method="post" class="assign-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="club_id" value="{{ c.id }}">
+        <select name="target_id" aria-label="Gehört zu Verein" required>
+          <option value="">Gehört zu …</option>
+          {% for o in all_clubs %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}
+        </select>
+        <button class="btn small-btn primary" name="action" value="club_merge">Zusammenführen</button>
+      </form>
+      <form method="post" class="assign-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="club_id" value="{{ c.id }}">
+        <input name="name" placeholder="… oder Namen geben, z. B. SV Beerfurth" required aria-label="Vereinsname">
+        <button class="btn small-btn" name="action" value="club_save">Speichern</button>
+      </form>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+<h2 style="margin-top:22px">Vereine</h2>
+{% endif %}
+
 <div class="list" style="margin-top:12px">
   {% for d in data %}
   {% set c = d.club %}
   <details class="card opp-club" id="verein-{{ c.id }}">
     <summary>
       <b>{{ c.name }}</b>
-      <span class="muted small">{% if c.location %}{{ c.location }} · {% endif %}{{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }} · {{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}</span>
+      <span class="muted small">{% if c.club_nr %}Nr. {{ c.club_nr }} · {% endif %}{% if c.location %}{{ c.location }} · {% endif %}{{ d.teams|length }} Mannschaft{{ 'en' if d.teams|length != 1 }} · {{ d.shooters|length }} Schütze{{ 'n' if d.shooters|length != 1 }}</span>
       <span class="small accent-link">Öffnen</span>
     </summary>
 
@@ -98,6 +126,18 @@
       </form>
 
       {# --- Verein --- #}
+      <details class="opp-club-edit">
+        <summary class="small">Doppelt? Mit anderem Verein zusammenführen</summary>
+        <form method="post" class="assign-form" style="margin-top:10px">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="club_id" value="{{ c.id }}">
+          <select name="target_id" aria-label="Zusammenführen mit" required>
+            <option value="">{{ c.name }} gehört zu …</option>
+            {% for o in all_clubs if o.id != c.id %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}
+          </select>
+          <button class="btn small-btn" name="action" value="club_merge"
+            onclick='return confirm({{ (c.name ~ " in den gewählten Verein übernehmen? Mannschaften, Schützen und Wettkämpfe wandern mit, " ~ c.name ~ " verschwindet.")|tojson }})'>Zusammenführen</button>
+        </form>
+      </details>
       <details class="opp-club-edit">
         <summary class="small">Vereinsdaten ändern oder Verein löschen</summary>
         <form method="post" class="stack" style="margin-top:10px">

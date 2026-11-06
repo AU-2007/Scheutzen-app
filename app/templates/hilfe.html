@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}Anleitungen{% endblock %}
+{% block content %}
+<h1>Anleitungen</h1>
+<p class="muted" style="margin-top:-6px">Kurz erklärt, Schritt für Schritt. Du siehst die Themen, die zu deiner Rolle ({{ ROLES[me.role] }}) passen.</p>
+
+<nav class="help-toc">
+  <a href="#alle" class="chip-f">Für alle</a>
+  {% if is_trainer or can_cancel %}<a href="#training" class="chip-f">Training</a>{% endif %}
+  {% if is_leader %}<a href="#mannschaft" class="chip-f">Mannschaft &amp; Wettkampf</a>{% endif %}
+  {% if is_admin %}<a href="#admin" class="chip-f">Verwaltung</a><a href="#wartung" class="chip-f">Wartung &amp; Server</a>{% endif %}
+</nav>
+
+{# =================================================================== FÜR ALLE #}
+<section id="alle">
+  <h2>Für alle</h2>
+  <div class="help-list">
+    <details class="card help">
+      <summary>Zu einem Termin zu- oder absagen</summary>
+      <ol>
+        <li>Unter <b>Übersicht</b> stehen deine Termine dieser Woche, unter <b>Termine</b> alle weiteren.</li>
+        <li>Bei einem <b>Wettkampf</b>: Termin antippen → <b>Zusage</b>, <b>Vielleicht</b> oder <b>Absage</b>.</li>
+        <li>Bei einem <b>Training</b>: <b>Zusage</b>, <b>Später</b> (du kommst nach) oder <b>Absage</b>. Gibt es zwei Bereiche (z. B. LG und KK), kannst du deinen Wunsch wählen.</li>
+        <li>Du kannst deine Antwort jederzeit ändern. Ist ein Training voll, ist die Zusage gesperrt.</li>
+      </ol>
+      <p class="tip">Offene Termine ohne Antwort zählt die Übersicht oben als „zu erledigen“.</p>
+    </details>
+
+    <details class="card help" id="kalender">
+      <summary>Termine automatisch im Handy-Kalender</summary>
+      <ol>
+        <li><a href="{{ url_for('profile') }}#kalender">Profil → Termine im Handy-Kalender</a> → <b>Kalender verbinden</b>.</li>
+        {% if platform == 'apple' %}
+        <li><b>Zum Kalender hinzufügen</b> tippen → <b>Abonnieren</b>. Fertig.</li>
+        <li>Tipp: Einstellungen → Kalender → Accounts → Datenabgleich auf <b>Stündlich</b>.</li>
+        {% else %}
+        <li><b>Android/Samsung:</b> <b>Mit Google-Kalender verbinden</b> → <b>Hinzufügen</b>.</li>
+        <li><b>Wichtig:</b> In der Google-Kalender-App ☰ → Einstellungen → ggf. „Mehr anzeigen“ → den neuen Kalender antippen → <b>Synchronisieren</b> einschalten. Sonst bleibt der Kalender auf dem Handy leer.</li>
+        <li><b>iPhone:</b> <b>Zum Kalender hinzufügen</b> → <b>Abonnieren</b>.</li>
+        {% endif %}
+      </ol>
+      <p class="tip">Zusagen erscheinen automatisch, Absagen verschwinden. Google holt neue Termine nur alle paar Stunden. Sofort geht es mit dem Knopf <b>„📅 In meinen Kalender eintragen“</b>, der nach jeder Zusage erscheint. Im Profil steht, wann dein Kalender zuletzt abgerufen hat.</p>
+    </details>
+
+    <details class="card help">
+      <summary>Fahrgemeinschaft bei Auswärtswettkämpfen</summary>
+      <ol>
+        <li>Auswärtswettkampf öffnen → Abschnitt <b>Fahrgemeinschaft</b>.</li>
+        <li><b>Ich fahre</b> (mit freien Plätzen im Auto), <b>Brauche Mitfahrt</b> (optional bei wem) oder <b>Eigene Anreise</b>.</li>
+        <li>Alle sehen, wer fährt und wo noch Plätze frei sind.</li>
+      </ol>
+    </details>
+
+    <details class="card help">
+      <summary>Profil, Profilbild, Darstellung, Passwort</summary>
+      <ol>
+        <li>Oben rechts auf deinen Namen → <a href="{{ url_for('profile') }}">Mein Profil &amp; Einstellungen</a>.</li>
+        <li>Dort: Statistik, Profilbild, <b>Darstellung</b> (hell/dunkel, Farbe) und <b>Passwort ändern</b>.</li>
+      </ol>
+      <p class="tip">Passwort vergessen? Der Admin kann ein neues setzen. Danach wirst du auf allen Geräten abgemeldet.</p>
+    </details>
+  </div>
+</section>
+
+{# =================================================================== TRAINING #}
+{% if is_trainer or can_cancel %}
+<section id="training">
+  <h2>Training</h2>
+  <div class="help-list">
+    {% if is_trainer %}
+    <details class="card help">
+      <summary>Feste Trainingszeiten anlegen</summary>
+      <ol>
+        <li><a href="{{ url_for('training_slots') }}">Termine → Trainingszeiten</a>.</li>
+        <li>Wochentag, Uhrzeit, Ort und Anzahl <b>Stände</b> eintragen. Mit zweitem Bereich (z. B. KK) gibt es eine eigene Ständezahl.</li>
+        <li>Optional <b>Gruppen</b> wählen (z. B. Jugend). Dann sehen das Training nur diese Gruppen, sonst alle.</li>
+        <li><b>Anlegen</b>. Das Training erscheint ab jetzt jede Woche bei allen.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Sondertraining anlegen</summary>
+      <ol>
+        <li>Unter <b>Termine</b> → <b>+ Sondertraining</b>.</li>
+        <li>Datum, Uhrzeit, Stände und ggf. eine Notiz eintragen → <b>Sondertraining anlegen</b>.</li>
+      </ol>
+    </details>
+    {% endif %}
+    <details class="card help">
+      <summary>Training ausfallen lassen</summary>
+      <ol>
+        <li>Das Training unter <b>Termine</b> öffnen.</li>
+        <li><b>Training ausfallen lassen</b>, optional mit Grund → <b>Als ausgefallen markieren</b>.</li>
+        <li>Alle sehen es als ausgefallen; aus Handy-Kalendern verschwindet es beim nächsten Abgleich. Rückgängig: <b>Training findet doch statt</b>.</li>
+      </ol>
+    </details>
+  </div>
+</section>
+{% endif %}
+
+{# =================================================================== MANNSCHAFT #}
+{% if is_leader %}
+<section id="mannschaft">
+  <h2>Mannschaft &amp; Wettkampf</h2>
+  <div class="help-list">
+    {% if is_admin %}
+    <details class="card help">
+      <summary>Neue Mannschaft anlegen <span class="pill av-nein">Admin</span></summary>
+      <ol>
+        <li><a href="{{ url_for('teams') }}">Mannschaften</a> → <b>+ Neue Mannschaft</b>.</li>
+        <li>Name, Disziplin, Liga, Saison und <b>Mannschaftsführer</b> wählen → Speichern.</li>
+        <li>Der Mannschaftsführer kann die Mannschaft danach selbst verwalten.</li>
+      </ol>
+    </details>
+    {% endif %}
+    <details class="card help">
+      <summary>Schützen in die Mannschaft holen, Stamm und Ersatz</summary>
+      <ol>
+        <li>Mannschaft öffnen → Abschnitt <b>Schützen</b> → Person wählen, <b>Stamm</b> oder <b>Ersatz</b> → <b>Hinzufügen</b>.</li>
+        <li>Auf „Stamm“/„Ersatz“ tippen schaltet um. Entfernen über das ✕.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Wettkampftermine aus dem RWK-Onlinemelder übernehmen</summary>
+      <ol>
+        <li>Im RWK-Onlinemelder den Kalender der Liga als <b>.ics</b> herunterladen.</li>
+        <li>Mannschaft öffnen → <b>Wettkampfplan importieren</b> → Datei wählen.</li>
+        <li>Die App sucht deine Mannschaft (z. B. „SV Eisenbach 3“) heraus. Stimmt sie nicht, oben die richtige wählen.</li>
+        <li>Termine prüfen → <b>Ausgewählte speichern</b>. Gegner werden auf Wunsch gleich mit angelegt.</li>
+      </ol>
+      <p class="tip">Falsch importiert? Auf derselben Seite unten: <b>importierte Termine entfernen</b> (nur Termine ohne Ergebnis).</p>
+    </details>
+    <details class="card help">
+      <summary>Einzelnen Wettkampf anlegen oder verlegen</summary>
+      <ol>
+        <li>Mannschaft öffnen → <b>+ Wettkampf</b> → Datum, Uhrzeit, Gegner, Heim/Auswärts, Ort, Treffpunkt.</li>
+        <li>Verlegen: Wettkampf öffnen → <b>Termin verlegen</b> → neues Datum → <b>Verlegung beantragen</b>. Ist sie bestätigt: <b>Bestätigt, Termin ändern</b>.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Aufstellung festlegen</summary>
+      <ol>
+        <li>Wettkampf öffnen. Du siehst, wer zu-, ab- oder noch nicht geantwortet hat.</li>
+        <li>Schützen anhaken → <b>Aufstellen</b>. Die Reihenfolge ist die Paarung.</li>
+        <li>Fehlt jemand: <b>Ersatz aus anderer Mannschaft</b> oder eine <b>Aushilfe</b> eintragen.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Gegnerschützen, Standplan und DISAG-Datei</summary>
+      <ol>
+        <li>Wettkampf öffnen → <b>Gegnerschützen eintragen</b> (aus der Gegnerliste wählen oder neu anlegen).</li>
+        <li><b>Standplan</b> öffnen → <b>Automatisch verteilen</b> (Paarungen nebeneinander) oder von Hand ändern. Drucken geht direkt dort.</li>
+        <li>Für die Schießanlage: <b>FLEX-Datei herunterladen (.csv)</b> und im DISAG OpticScore über den FLEX-Import laden.</li>
+      </ol>
+      <p class="tip">Fehlen Jahrgang oder Geschlecht, zeigt der Standplan einen Hinweis. Die Angaben stehen im Benutzerprofil.</p>
+    </details>
+    <details class="card help">
+      <summary>Ergebnisse eintragen und im RWK melden</summary>
+      <ol>
+        <li>Nach dem Wettkampf: im Wettkampf in der Spalte <b>Ringe</b> bei jedem Schützen eintragen → <b>Speichern</b>. Die Ringe der Gegnerschützen genauso.</li>
+        <li><b>Ergebnis kopieren</b> → im <b>RWK-Onlinemelder</b> einfügen bzw. abtippen. Der Melder hat keine Schnittstelle, darum dieser Weg.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Gegner verwalten</summary>
+      <ol>
+        <li>Oben rechts → <a href="{{ url_for('opponents') }}">Gegner</a>: Vereine, deren Mannschaften und Schützen.</li>
+        <li><b>Verein anlegen</b> oder <b>Aus Datei importieren</b>. So musst du Gegnerschützen nur einmal erfassen.</li>
+      </ol>
+    </details>
+  </div>
+</section>
+{% endif %}
+
+{# =================================================================== ADMIN #}
+{% if is_admin %}
+<section id="admin">
+  <h2>Verwaltung <span class="pill av-nein">nur Admin</span></h2>
+  <div class="help-list">
+    <details class="card help">
+      <summary>Benutzer anlegen</summary>
+      <ol>
+        <li><a href="{{ url_for('users') }}">Benutzer</a> → <b>+ Neuer Benutzer</b>.</li>
+        <li>Name, Benutzername, Rolle, ggf. Pass-Nr., Jahrgang und Geschlecht (für DISAG) → <b>Vorschlag</b> für ein Startpasswort → Speichern.</li>
+        <li>Benutzername und Startpasswort weitergeben. Beim ersten Login muss das Passwort geändert werden.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Viele Schützen per Datei importieren (CSV)</summary>
+      <ol>
+        <li><a href="{{ url_for('club') }}">Verein</a> → <b>Schützen importieren</b> → Datei wählen → <b>Datei prüfen</b>.</li>
+        <li>Spalten zuordnen. Gibt es eine Vereinsspalte, fragt die App pro Verein: <b>Mitglied</b>, <b>Gegner</b> oder <b>nicht importieren</b>.</li>
+        <li>So landen nur eure Leute als Benutzer, Gegner in der Gegnerliste.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Mehrere Benutzer auf einmal sperren, löschen, Rolle ändern</summary>
+      <ol>
+        <li><a href="{{ url_for('users') }}">Benutzer</a> → oben filtern (z. B. nach Verein, Rolle, „nie angemeldet“).</li>
+        <li>Haken setzen (oder alle auswählen) → Aktion wählen → <b>Ausführen</b>. Löschen nur mit dem Wort LÖSCHEN.</li>
+      </ol>
+      <p class="tip">Wer ausgetreten ist, besser <b>sperren</b> statt löschen. Dann bleiben die Ergebnisse in der Statistik.</p>
+    </details>
+    <details class="card help">
+      <summary>Trainingsgruppen und Vereinsdaten</summary>
+      <ol>
+        <li><a href="{{ url_for('groups') }}">Trainingsgruppen</a>: z. B. Jugend, Erwachsene. Benutzer im Profil zuordnen, Trainings auf Gruppen beschränken.</li>
+        <li><a href="{{ url_for('club') }}">Verein</a>: Vereinsname, Stände Luftgewehr/Luftpistole und Kleinkaliber, Minuten pro Durchgang (für Standplan und Startzeiten).</li>
+      </ol>
+    </details>
+  </div>
+</section>
+
+<section id="wartung">
+  <h2>Wartung &amp; Server <span class="pill av-nein">nur Admin</span></h2>
+  <div class="help-list">
+    <details class="card help" open>
+      <summary>Die Wartungsseite</summary>
+      <p>Alles unter <a href="{{ url_for('admin_maintenance') }}">Wartung</a>. Die Ausgabe läuft live mit; es läuft immer nur ein Auftrag.</p>
+      <table class="log help-table">
+        <tbody>
+          <tr><td><b>Sicherung jetzt</b></td><td>Sichert Datenbank, Profilbilder, Einstellungen.</td></tr>
+          <tr><td><b>Auf Updates prüfen</b></td><td>Sucht nur, installiert nichts.</td></tr>
+          <tr><td><b>Linux-Updates installieren</b></td><td>Wie <code>apt full-upgrade</code>, auch Kernel. App läuft weiter.</td></tr>
+          <tr><td><b>Wartung jetzt</b></td><td>Sicherung, Linux-Updates, Container neu bauen, aufräumen (wie sonntags 04:00).</td></tr>
+          <tr><td><b>App aktualisieren</b></td><td>Neue Version von GitHub holen und einspielen. Vorher Sicherung; startet sie nicht, kommt automatisch die alte zurück.</td></tr>
+          <tr><td><b>Container neu bauen</b></td><td>Ohne neue Version, für aktuelle Sicherheitsupdates im Image.</td></tr>
+          <tr><td><b>Server neu starten</b></td><td>Nach Kernel-Updates. Sonst automatisch um 04:30.</td></tr>
+        </tbody>
+      </table>
+    </details>
+    <details class="card help">
+      <summary>Sicherung einspielen oder App-Version zurückrollen</summary>
+      <ol>
+        <li><b>Sicherung einspielen</b>: Wartung → Abschnitt Sicherungen → gewünschte wählen → <b>EINSPIELEN</b> eintippen. Der jetzige Stand wird vorher noch gesichert.</li>
+        <li><b>Zurückrollen</b>: Wartung → App-Version zurückrollen → Version wählen → <b>ZURÜCK</b> eintippen. Daten bleiben erhalten. Wieder nach vorne: <b>App aktualisieren</b>.</li>
+      </ol>
+      <p class="tip">Vor jedem Neubau wird automatisch gesichert (die letzten 3 bleiben), dazu täglich um 03:15 (14 Tage) und von Hand (die letzten 5). Linux-Pakete lassen sich nicht zurückrollen, nur App-Versionen.</p>
+    </details>
+    <details class="card help">
+      <summary>Neue App-Version und Python-Module</summary>
+      <ol>
+        <li>Änderungen kommen über GitHub (Repository der App). Danach in der App <b>App aktualisieren</b>.</li>
+        <li>Neuere Python-Module (Flask, gunicorn, Pillow …) zeigt Wartung → Versionen orange an. Dependabot schlägt sie auf GitHub vor; nach dem Übernehmen <b>App aktualisieren</b>.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Befehle direkt auf dem Server (SSH)</summary>
+      <p>Nur nötig, wenn die App selbst nicht läuft. Im Ordner <code>/opt/schuetzenverein</code>:</p>
+      <table class="log help-table">
+        <tbody>
+          <tr><td><code>./scripts/status.sh</code></td><td>Überblick: App, Sicherung, Updates, Firewall, fail2ban</td></tr>
+          <tr><td><code>./update.sh</code></td><td>App aktualisieren (<code>--force</code> neu bauen, <code>--rollback &lt;version&gt;</code>)</td></tr>
+          <tr><td><code>./scripts/backup.sh</code></td><td>Sicherung jetzt</td></tr>
+          <tr><td><code>./scripts/restore.sh</code></td><td>Sicherungen anzeigen / zurückspielen</td></tr>
+          <tr><td><code>./scripts/linux-updates.sh</code></td><td>Linux-Updates installieren</td></tr>
+          <tr><td><code>sudo bash scripts/einrichten.sh</code></td><td>Server-Grundschutz und Zeitpläne einrichten (einmalig, wiederholbar)</td></tr>
+          <tr><td><code>docker compose logs --tail 50</code></td><td>Letzte Meldungen der App</td></tr>
+        </tbody>
+      </table>
+    </details>
+    <details class="card help">
+      <summary>Wichtige Einstellungen (.env) und Cloudflare</summary>
+      <ul>
+        <li><code>TRUST_PROXY=1</code> und <code>COOKIE_SECURE=1</code>: nötig hinter Cloudflare Tunnel (sonst „kein HTTPS“).</li>
+        <li><code>SECRET_KEY</code>: eigener Zufallswert (<code>openssl rand -hex 32</code>). Ändern meldet alle ab.</li>
+        <li><code>BACKUP_DIR</code>: Sicherungsordner, am besten eigenes Laufwerk.</li>
+        <li>Nach Änderungen: <code>docker compose up -d</code>.</li>
+        <li>Kalender-Abos brauchen, dass Google &amp; Co. <code>/kalender/…</code> abrufen dürfen. Blockt Cloudflare (Bot Fight Mode), kommen keine Termine an.</li>
+      </ul>
+    </details>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

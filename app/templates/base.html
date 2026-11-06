@@ -34,6 +34,7 @@
       <div class="menu">
         <div class="muted small">{{ me.name }}<br>{{ ROLES[me.role] }}</div>
         <a href="{{ url_for('profile') }}">Mein Profil &amp; Einstellungen</a>
+        <a href="{{ url_for('help_page') }}">Anleitungen</a>
         {% if me.role in ('admin', 'leader') %}<a href="{{ url_for('opponents') }}">Gegner</a>{% endif %}
         {% if me.role == 'admin' %}
         <div class="menu-sep">Verwaltung</div>

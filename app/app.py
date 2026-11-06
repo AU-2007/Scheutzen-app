@@ -1028,6 +1028,16 @@ def calendar_feed(token):
     return resp
 
 
+@app.route("/anleitungen")
+@login_required
+def help_page():
+    """Kurze Anleitungen, je nach Rolle (Admin-Themen nur für Admins)."""
+    role = current_user()["role"]
+    return render_template("hilfe.html", is_admin=role == "admin", is_leader=role in ("admin", "leader"),
+                           is_trainer=role in ("admin", "trainer"), can_cancel=role in ("admin", "leader", "trainer"),
+                           platform=device_platform())
+
+
 @app.route("/avatar/<int:uid>")
 @login_required
 def avatar(uid):

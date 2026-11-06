@@ -60,7 +60,7 @@
   <h2>Schützen</h2>
   <div class="card flush">
     <table>
-      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th class="num" title="Einsätze in der Saison (alle Mannschaften dieser Disziplin)">Saison</th><th></th>{% endif %}</tr></thead>
+      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th></th>{% endif %}</tr></thead>
       <tbody>
       {% for s in members %}
         <tr>
@@ -75,8 +75,7 @@
           <td class="num">{{ s.n }}</td>
           <td class="num strong">{{ s.avg|ringe if s.avg is not none else '–' }}</td>
           <td class="num">{{ s.best|ringe }}</td>
-          {% if manage %}{% set ri = rwk.get(s.id) %}
-          <td class="num small">{% if ri %}{{ ri.starts }}/{{ ri.limit }}{% for p in ri.problems %}<span class="bad-text rwk-warn">⚠ {{ p }}</span>{% endfor %}{% endif %}</td>
+          {% if manage %}
           <td class="num">
             <form method="post" action="{{ url_for('team_remove_member', tid=t.id, uid=s.id) }}" onsubmit='return confirm({{ (s.name ~ " aus der Mannschaft entfernen?")|tojson }})'>
               <input type="hidden" name="csrf" value="{{ csrf }}"><button class="x" title="Entfernen">✕</button>
@@ -85,7 +84,7 @@
           {% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="6" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
+        <tr><td colspan="5" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -106,4 +105,56 @@
   </form>
   {% endif %}
 </section>
+
+{% if manage and members %}
+<section id="saison">
+  <h2>Einsätze Saison {{ season_now }}</h2>
+  <p class="muted small" style="margin-top:-4px">Nach RWK-Ordnung VII, gezählt über alle Mannschaften mit Disziplin {{ t.discipline or '(ohne)' }}. Beginnt jede Saison am 1. August von vorn. Auf-/Abstiegskämpfe zählen nicht. Mit „Anpassen“ überschreibst du die Zählung für diese Saison.</p>
+  <div class="list">
+  {% for s in members %}{% set ri = rwk.get(s.id) %}{% if ri %}{% set o = ri.override %}
+    <details class="card rwk-row">
+      <summary>
+        <span class="rwk-name">{{ s.name }}</span>
+        <span class="rwk-count {{ 'bad-text' if ri.starts >= ri.limit }}">{{ ri.starts }}/{{ ri.limit }}</span>
+        {% if ri.problems %}<span class="bad-text small rwk-status">⚠ {{ ri.problems|join(' · ') }}</span>
+        {% elif o and o.bind_mode == 'frei' %}<span class="muted small rwk-status">keine Bindung (von Hand)</span>
+        {% elif ri.bound %}<span class="muted small rwk-status">gebunden an {{ ri.bound }}</span>
+        {% else %}<span class="ok-text small rwk-status">frei</span>{% endif %}
+        {% if o %}<span class="pill open" title="Von Hand angepasst{{ ': ' ~ o.note if o.note }}">angepasst</span>{% endif %}
+        <span class="linkbtn small accent rwk-edit">Anpassen</span>
+      </summary>
+      <form method="post" action="{{ url_for('team_rwk_override', tid=t.id, uid=s.id) }}" class="stack" style="margin-top:12px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="opp-grid">
+          <label>Einsätze außerhalb der App <span class="muted small">(+/−)</span>
+            <input name="extra_starts" type="number" min="-30" max="30" inputmode="numeric" value="{{ o.extra_starts if o else 0 }}"></label>
+          <label>Bindung
+            <select name="bind_mode" data-bind>
+              <option value="auto" {{ 'selected' if not o or o.bind_mode == 'auto' }}>automatisch berechnen</option>
+              <option value="frei" {{ 'selected' if o and o.bind_mode == 'frei' }}>keine Bindung</option>
+              <option value="team" {{ 'selected' if o and o.bind_mode == 'team' }}>gebunden an …</option>
+            </select></label>
+          <label data-bound-team>Mannschaft
+            <select name="bound_team_id">{% for x in same_disc %}<option value="{{ x.id }}" {{ 'selected' if o and o.bound_team_id == x.id }}>{{ x.name }}</option>{% endfor %}</select></label>
+        </div>
+        <label>Notiz <span class="muted small">(z. B. „3 Einsätze bei SV Beerfurth vor Vereinswechsel“)</span>
+          <input name="note" maxlength="200" value="{{ o.note if o }}"></label>
+        <div class="inline wrap">
+          <button class="btn primary">Speichern</button>
+          {% if o %}<button class="btn" name="reset" value="1" formnovalidate>Automatisch zählen</button>{% endif %}
+        </div>
+        <p class="muted small" style="margin:0">{% if ri.extra %}In der App gezählt: {{ ri.starts - ri.extra }}, angepasst um {{ '%+d'|format(ri.extra) }}. {% endif %}Gilt nur für die Saison {{ ri.season }}.</p>
+      </form>
+    </details>
+  {% endif %}{% endfor %}
+  </div>
+</section>
+<script>
+  document.querySelectorAll('[data-bind]').forEach(function (sel) {
+    var box = sel.closest('form').querySelector('[data-bound-team]');
+    function sync() { box.hidden = sel.value !== 'team'; }
+    sel.addEventListener('change', sync); sync();
+  });
+</script>
+{% endif %}
 {% endblock %}

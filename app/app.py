@@ -155,6 +155,18 @@ CREATE TABLE IF NOT EXISTS team_editors (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   PRIMARY KEY (team_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS rwk_overrides (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  season TEXT NOT NULL,                      -- z. B. 2026/27 (gilt nur in dieser Saison)
+  discipline TEXT NOT NULL DEFAULT '',
+  extra_starts INTEGER NOT NULL DEFAULT 0,   -- Einsätze außerhalb der App (+) oder Korrektur (-)
+  bind_mode TEXT NOT NULL DEFAULT 'auto',    -- auto | frei | team
+  bound_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  note TEXT NOT NULL DEFAULT '',
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT,
+  PRIMARY KEY (user_id, season, discipline)
+);
 CREATE TABLE IF NOT EXISTS matches (
   id INTEGER PRIMARY KEY,
   team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -2252,8 +2264,44 @@ def team(tid):
     editors = q("""SELECT u.name FROM team_editors e JOIN users u ON u.id=e.user_id
                    WHERE e.team_id=? ORDER BY u.name""", (tid,))
     rwk = rwk_check(t, date.today().isoformat(), [m["id"] for m in members]) if can_manage(t) else {}
+    same_disc = q("SELECT id, name, rank FROM teams WHERE discipline=? ORDER BY name", (t["discipline"],)) if can_manage(t) else []
     return render_template("team.html", t=t, members=members, matches=matches, record=record, rwk=rwk,
+                           same_disc=same_disc, season_now=season_of(t, date.today().isoformat()),
                            candidates=candidates, manage=can_manage(t), editors=editors)
+
+
+@app.route("/mannschaft/<int:tid>/einsaetze/<int:uid>", methods=["POST"])
+@login_required
+def team_rwk_override(tid, uid):
+    """Einsätze/Bindung eines Schützen für die laufende Saison von Hand anpassen (RWK VII)."""
+    t = get_team(tid)
+    if not can_manage(t):
+        abort(403)
+    if not q("SELECT 1 FROM users WHERE id=?", (uid,), one=True):
+        abort(404)
+    season = season_of(t, date.today().isoformat())
+    if request.form.get("reset") == "1":
+        ex("DELETE FROM rwk_overrides WHERE user_id=? AND season=? AND discipline=?", (uid, season, t["discipline"]))
+        flash("Anpassung entfernt, es gilt wieder die automatische Zählung.", "ok")
+        return redirect(url_for("team", tid=tid) + "#saison")
+    extra = request.form.get("extra_starts", type=int) or 0
+    extra = max(-30, min(30, extra))
+    mode = request.form.get("bind_mode") if request.form.get("bind_mode") in ("auto", "frei", "team") else "auto"
+    bound = request.form.get("bound_team_id", type=int)
+    if mode == "team":
+        if not bound or not q("SELECT 1 FROM teams WHERE id=? AND discipline=?", (bound, t["discipline"]), one=True):
+            flash("Bitte die Mannschaft wählen, an die der Schütze gebunden ist.", "error")
+            return redirect(url_for("team", tid=tid) + "#saison")
+    else:
+        bound = None
+    ex("""INSERT INTO rwk_overrides (user_id, season, discipline, extra_starts, bind_mode, bound_team_id, note, updated_by, updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(user_id, season, discipline) DO UPDATE SET extra_starts=excluded.extra_starts, bind_mode=excluded.bind_mode,
+            bound_team_id=excluded.bound_team_id, note=excluded.note, updated_by=excluded.updated_by, updated_at=excluded.updated_at""",
+       (uid, season, t["discipline"], extra, mode, bound, request.form.get("note", "").strip()[:200],
+        current_user()["id"], datetime.now().isoformat(timespec="seconds")))
+    flash(f"Gespeichert für die Saison {season}.", "ok")
+    return redirect(url_for("team", tid=tid) + "#saison")
 
 
 @app.route("/mannschaft/<int:tid>/mitglieder", methods=["POST"])
@@ -2554,9 +2602,8 @@ def team_rank(t):
 
 
 def season_of(t, d):
-    """Saison der Mannschaft; ohne Eintrag aus dem Datum (August bis Juli)."""
-    if (t["season"] or "").strip():
-        return t["season"].strip()
+    """Saison immer aus dem Datum (1. August bis 31. Juli). So beginnt die Zählung jede Saison von vorn,
+    auch wenn im Saisonfeld der Mannschaft noch das Vorjahr steht."""
     y, mo = int(d[:4]), int(d[5:7])
     y = y if mo >= 8 else y - 1
     return f"{y}/{(y + 1) % 100:02d}"
@@ -2586,16 +2633,30 @@ def rwk_check(team, until, uids, exclude_mid=None, until_time="", until_id=None)
     Gibt {uid: {"starts", "limit", "bound": Mannschaftsname|None, "problems": [...]}}."""
     limit = team["max_starts"] or 10
     my_rank = team_rank(team)
+    season = season_of(team, until)
+    ov = {r["user_id"]: r for r in q(f"""SELECT o.*, t.name bound_name, t.rank, t.name FROM rwk_overrides o
+                                          LEFT JOIN teams t ON t.id=o.bound_team_id
+                                          WHERE o.season=? AND o.discipline=? AND o.user_id IN ({','.join('?' * len(uids))})""",
+                                       [season, team["discipline"]] + list(uids))} if uids else {}
     out = {}
     for uid, starts in rwk_starts(team, until, uids, exclude_mid, until_time, until_id).items():
+        o = ov.get(uid)
+        extra = o["extra_starts"] if o else 0
+        n = max(0, len(starts) + extra)
         higher = [r for r in starts if team_rank(r) < my_rank]
-        info = {"starts": len(starts), "limit": limit, "bound": None, "problems": []}
-        if len(higher) >= 3:
+        info = {"starts": n, "limit": limit, "bound": None, "problems": [], "override": o, "extra": extra,
+                "season": season}
+        mode = o["bind_mode"] if o else "auto"
+        if mode == "team" and o["bound_team_id"]:
+            if team_rank(o) < my_rank:      # festgelegte Bindung an eine höhere Mannschaft
+                info["bound"] = o["bound_name"]
+                info["problems"].append(f"an {o['bound_name']} gebunden (von Hand festgelegt)")
+        elif mode == "auto" and len(higher) >= 3:
             lowest = max(higher, key=team_rank)   # unterste der höheren Klassen (VII.3)
             info["bound"] = lowest["name"]
             info["problems"].append(f"an {lowest['name']} gebunden ({len(higher)}× höher geschossen)")
-        if len(starts) >= limit:
-            info["problems"].append(f"schon {len(starts)} Einsätze, mehr als {limit} sind nicht erlaubt")
+        if n >= limit:
+            info["problems"].append(f"schon {n} Einsätze, mehr als {limit} sind nicht erlaubt")
         out[uid] = info
     return out
 

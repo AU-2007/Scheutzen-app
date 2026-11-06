@@ -47,11 +47,11 @@
       <a class="btn primary big-btn" href="{{ webcal }}">📅 Zum Kalender hinzufügen</a>
       <p class="muted small" style="margin:0">Danach „Abonnieren“ tippen. Fertig.</p>
       {% elif platform == 'android' %}
-      <a class="btn primary big-btn" href="https://calendar.google.com/calendar/r?cid={{ webcal|urlencode }}" target="_blank" rel="noopener">📅 Mit Google-Kalender verbinden</a>
+      <a class="btn primary big-btn" href="https://calendar.google.com/calendar/r?cid={{ cal_url|replace("http://", "https://")|urlencode }}" target="_blank" rel="noopener">📅 Mit Google-Kalender verbinden</a>
       <p class="muted small" style="margin:0">Kostenlos über dein Google-Konto, das auf dem Handy schon eingerichtet ist. „Hinzufügen“ tippen. Die Termine erscheinen dann auch im Samsung-Kalender. Lässt Google es am Handy nicht zu: einmal am PC mit demselben Google-Konto auf diese Seite gehen.</p>
       {% else %}
       <div class="inline wrap">
-        <a class="btn primary" href="https://calendar.google.com/calendar/r?cid={{ webcal|urlencode }}" target="_blank" rel="noopener">Google Kalender</a>
+        <a class="btn primary" href="https://calendar.google.com/calendar/r?cid={{ cal_url|replace("http://", "https://")|urlencode }}" target="_blank" rel="noopener">Google Kalender</a>
         <a class="btn" href="{{ webcal }}">Outlook / Apple</a>
       </div>
       <p class="muted small" style="margin:0">Mit Google verbunden erscheint es auch auf Samsung- und Android-Handys mit demselben Google-Konto.</p>
@@ -69,7 +69,7 @@
           <span class="pw-row"><input id="cal-url" value="{{ cal_url }}" readonly onclick="this.select()">
           <button type="button" class="btn small-btn" id="cal-copy">Kopieren</button></span></label>
         <div class="inline wrap">
-          {% if platform == 'apple' %}<a class="btn small-btn" href="https://calendar.google.com/calendar/r?cid={{ webcal|urlencode }}" target="_blank" rel="noopener">Über Google-Konto</a>{% endif %}
+          {% if platform == 'apple' %}<a class="btn small-btn" href="https://calendar.google.com/calendar/r?cid={{ cal_url|replace("http://", "https://")|urlencode }}" target="_blank" rel="noopener">Über Google-Konto</a>{% endif %}
           {% if platform != 'apple' %}<a class="btn small-btn" href="{{ webcal }}">Apple / Outlook</a>{% endif %}
         </div>
         <p class="muted" style="margin:0">Der Kalender holt neue Termine selbst ab, je nach Gerät etwa stündlich, über Google nur alle paar Stunden.</p>

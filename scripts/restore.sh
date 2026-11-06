@@ -16,21 +16,28 @@ file="$1"; [ -f "$file" ] || file="$BACKUP_DIR/$(basename "$file")"
 [ -f "$file" ] || fail "Datei nicht gefunden: $1"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-tar -xzf "$file" -C "$tmp"
-[ -f "$tmp/verein.db" ] || fail "In der Sicherung fehlt verein.db."
+tar -xzf "$file" -C "$tmp" --no-same-owner --no-same-permissions
+[ -f "$tmp/verein.db" ] && [ ! -L "$tmp/verein.db" ] || fail "In der Sicherung fehlt verein.db."
+chown -R 1000:1000 "$tmp"   # zurückgeschrieben wird als App-Benutzer (siehe as_app in lib.sh)
 
 if [ "$yes" -ne 1 ]; then
   read -r -p "Aktuelle Daten durch $(basename "$file") ersetzen? Tippe JA: " answer
   [ "$answer" = "JA" ] || fail "Abgebrochen, nichts geändert."
 fi
 
-[ -f "$DATA_DIR/verein.db" ] && { info "Sichere zuerst den aktuellen Stand …"; "$(dirname "$0")/backup.sh" vor-wiederherstellung; }
+if [ -e "$DATA_DIR/verein.db" ] || [ -L "$DATA_DIR/verein.db" ]; then
+  info "Sichere zuerst den aktuellen Stand …"
+  # Ist der aktuelle Stand kaputt, soll das Zurückspielen trotzdem gehen (dafür ist es ja da)
+  "$(dirname "$0")/backup.sh" vor-wiederherstellung || warn "Aktueller Stand ließ sich nicht sichern (beschädigt?). Spiele trotzdem zurück."
+fi
 info "Stoppe die App …"; compose stop mannschaften
-cp "$tmp/verein.db" "$DATA_DIR/verein.db"
-rm -f "$DATA_DIR/verein.db-wal" "$DATA_DIR/verein.db-shm"
-[ -d "$tmp/avatars" ] && { rm -rf "$DATA_DIR/avatars"; cp -r "$tmp/avatars" "$DATA_DIR/avatars"; }
-[ -f "$tmp/secret_key" ] && cp "$tmp/secret_key" "$DATA_DIR/.secret_key"
-chown -R 1000:1000 "$DATA_DIR"
+chown -R 1000:1000 "$DATA_DIR"   # folgt keinen Symlinks; stellt sicher, dass der App-Benutzer schreiben darf
+# Als App-Benutzer und mit --remove-destination: ein untergeschobener Symlink im Datenordner
+# wird ersetzt statt verfolgt, Systemdateien sind ohnehin nicht erreichbar.
+as_app cp --remove-destination "$tmp/verein.db" "$DATA_DIR/verein.db"
+as_app rm -f "$DATA_DIR/verein.db-wal" "$DATA_DIR/verein.db-shm"
+[ -d "$tmp/avatars" ] && { as_app rm -rf "$DATA_DIR/avatars"; as_app cp -rP "$tmp/avatars" "$DATA_DIR/avatars"; }
+[ -f "$tmp/secret_key" ] && [ ! -L "$tmp/secret_key" ] && as_app cp --remove-destination "$tmp/secret_key" "$DATA_DIR/.secret_key"
 if [ -f "$tmp/env" ] && ! cmp -s "$tmp/env" "$APP_DIR/.env"; then
   cp "$tmp/env" "$BACKUP_DIR/env-aus-$(basename "$file" .tar.gz)"; chmod 600 "$BACKUP_DIR/env-aus-$(basename "$file" .tar.gz)"
   warn "Die .env der Sicherung weicht ab. Sie liegt zum Vergleich unter $BACKUP_DIR/env-aus-$(basename "$file" .tar.gz) und wurde NICHT übernommen."

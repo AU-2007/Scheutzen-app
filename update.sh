@@ -5,6 +5,9 @@
 #   ./update.sh --rollback <commit> auf eine frühere Version zurück (Liste: git log --oneline -15)
 # Vor jedem Neubau wird eine Sicherung angelegt (Art "neubau", die letzten 3 bleiben).
 # Startet die neue Version nicht sauber, wird automatisch die vorherige wiederhergestellt.
+# Alles in { … } klammern: Bash liest das ganze Skript ein, bevor es losläuft. Wichtig, weil git
+# diese Datei unten selbst austauscht; sonst würde Bash mitten im Lauf die neue Version weiterlesen.
+{
 source "$(dirname "$0")/scripts/lib.sh"
 cd "$APP_DIR"
 [ -f .env ] || fail ".env fehlt. Bitte zuerst .env.example nach .env kopieren und ausfüllen."
@@ -74,3 +77,4 @@ if [ "$old" != "$new" ]; then
 fi
 snapshot
 exit 1
+}

@@ -12,9 +12,11 @@ case "$art" in taeglich|neubau|manuell|vor-wiederherstellung) ;; *) fail "Unbeka
 mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
 stamp="$(date +%F-%H%M%S)"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+chown 1000:1000 "$tmp"   # Daten werden als App-Benutzer gelesen (siehe as_app in lib.sh)
 
+[ -L "$DATA_DIR/verein.db" ] && fail "data/verein.db ist ein Symlink statt einer Datei. Nicht gesichert (möglicher Angriff)."
 # Online-Backup über die SQLite-API: sicher, auch wenn gerade jemand speichert
-if ! python3 - "$DATA_DIR/verein.db" "$tmp/verein.db" <<'PY'
+if ! as_app python3 -I - "$DATA_DIR/verein.db" "$tmp/verein.db" <<'PY'
 import sqlite3, sys
 src, dst = sqlite3.connect(sys.argv[1]), sqlite3.connect(sys.argv[2])
 src.backup(dst)
@@ -28,8 +30,11 @@ fi
 
 files=(verein.db)
 cp "$APP_DIR/.env" "$tmp/env" 2>/dev/null && files+=(env)
-[ -f "$DATA_DIR/.secret_key" ] && cp "$DATA_DIR/.secret_key" "$tmp/secret_key" && files+=(secret_key)
-[ -d "$DATA_DIR/avatars" ] && cp -r "$DATA_DIR/avatars" "$tmp/avatars" && files+=(avatars)
+# Symlinks nicht mitnehmen; kopiert wird als App-Benutzer (kein Zugriff auf Systemdateien)
+[ -f "$DATA_DIR/.secret_key" ] && [ ! -L "$DATA_DIR/.secret_key" ] \
+  && as_app cp "$DATA_DIR/.secret_key" "$tmp/secret_key" && files+=(secret_key)
+[ -d "$DATA_DIR/avatars" ] && [ ! -L "$DATA_DIR/avatars" ] \
+  && as_app cp -rP "$DATA_DIR/avatars" "$tmp/avatars" && files+=(avatars)
 
 out="$BACKUP_DIR/schuetzen-$art-$stamp.tar.gz"
 tar -czf "$out.part" -C "$tmp" "${files[@]}" && mv "$out.part" "$out"

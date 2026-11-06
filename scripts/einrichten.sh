@@ -117,14 +117,16 @@ unit wartung "Schützen-App: Wartung"         "$APP_DIR/scripts/wartung.sh" "Sun
 
 info "Wartungsdienst für die Wartungsseite der App"
 # Die App legt Aufträge in data/jobs/queue ab; dieser Dienst führt nur fest erlaubte Aktionen aus.
-install -d -o 1000 -g 1000 -m 0755 "$DATA_DIR/jobs" "$DATA_DIR/jobs/queue" "$DATA_DIR/jobs/log"
+# Ordner sicher anlegen (folgt keinen Symlinks, siehe scripts/safeio.py)
+python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import safeio, os
+for p in (("data","jobs","queue"), ("data","jobs","log")): os.close(safeio.open_dir(*p, create=True))' "$APP_DIR/scripts"
 cat > /etc/systemd/system/schuetzen-jobs.service <<CONF
 [Unit]
 Description=Schützen-App: Aufträge aus der Wartungsseite
 After=docker.service network-online.target
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 $APP_DIR/scripts/runner.py
+ExecStart=/usr/bin/python3 -I $APP_DIR/scripts/runner.py
 TimeoutStartSec=2h
 CONF
 cat > /etc/systemd/system/schuetzen-jobs.path <<CONF

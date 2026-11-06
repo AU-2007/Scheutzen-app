@@ -17,7 +17,7 @@ KEEP_NEUBAU="${KEEP_NEUBAU:-$(env_get BACKUP_KEEP_NEUBAU)}"; KEEP_NEUBAU="${KEEP
 KEEP_MANUELL="${KEEP_MANUELL:-$(env_get BACKUP_KEEP_MANUELL)}"; KEEP_MANUELL="${KEEP_MANUELL:-5}"
 
 # Status-Momentaufnahme für die Wartungsseite der App (Versionen, Sicherungen, Zeitpläne)
-snapshot() { BACKUP_DIR="$BACKUP_DIR" KEEP_NEUBAU="$KEEP_NEUBAU" KEEP_MANUELL="$KEEP_MANUELL" KEEP_DAYS="$KEEP_DAYS" python3 "$APP_DIR/scripts/snapshot.py" "$@" >/dev/null 2>&1 || true; }
+snapshot() { BACKUP_DIR="$BACKUP_DIR" KEEP_NEUBAU="$KEEP_NEUBAU" KEEP_MANUELL="$KEEP_MANUELL" KEEP_DAYS="$KEEP_DAYS" python3 -I "$APP_DIR/scripts/snapshot.py" "$@" >/dev/null 2>&1 || true; }
 
 info() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -27,16 +27,20 @@ need_root() { [ "$(id -u)" -eq 0 ] || fail "Bitte als root ausführen (sudo -i).
 
 compose() { (cd "$APP_DIR" && docker compose "$@"); }
 
+# Befehl als App-Benutzer (uid 1000) statt als root ausführen. Für alles, was Dateien im Datenordner
+# liest oder schreibt: Der gehört dem Container, ein dort untergeschobener Symlink darf root nicht
+# dazu bringen, Systemdateien zu lesen oder zu überschreiben.
+as_app() { setpriv --reuid=1000 --regid=1000 --clear-groups -- "$@"; }
+
 # Wert in data/wartung.json setzen (die App zeigt diese Datei in der Admin-Übersicht an)
 set_status() {
   [ -d "$DATA_DIR" ] || return 0
-  python3 - "$STATUS_FILE" "$@" <<'PY'
+  python3 -I - "$STATUS_FILE" "$@" <<'PY'
 import json, sys, os, datetime
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[1]))), "scripts"))
+from safeio import update_json   # schreibt sicher (folgt keinen Symlinks im Datenordner)
 path, pairs = sys.argv[1], sys.argv[2:]
-try:
-    data = json.load(open(path))
-except Exception:
-    data = {}
+changes = {}
 for p in pairs:
     k, _, v = p.partition("=")
     if v and v[0] in "[{":
@@ -50,16 +54,8 @@ for p in pairs:
         v = int(v)
     elif v in ("true", "false"):
         v = v == "true"
-    data[k] = v
-tmp = path + ".tmp"
-with open(tmp, "w") as fh:
-    json.dump(data, fh, indent=1, ensure_ascii=False)
-os.chmod(tmp, 0o644)
-try:
-    os.chown(tmp, 1000, 1000)
-except PermissionError:
-    pass
-os.replace(tmp, path)
+    changes[k] = v
+update_json(path, changes)
 PY
 }
 

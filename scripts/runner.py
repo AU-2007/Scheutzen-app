@@ -13,13 +13,14 @@ import fcntl
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safeio   # noqa: E402  sicheres Schreiben im Datenordner (keine Symlinks)
+
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(APP_DIR, "data")
-QUEUE = os.path.join(DATA_DIR, "jobs", "queue")
-LOGS = os.path.join(DATA_DIR, "jobs", "log")
 JOB_ID = re.compile(r"^\d{14}-[0-9a-f]{8}$")
 COMMIT = re.compile(r"^[0-9a-f]{7,40}$")
 BACKUP_FILE = re.compile(r"^schuetzen-(?:(?:taeglich|neubau|manuell|vor-wiederherstellung)-)?\d{4}-\d{2}-\d{2}-\d{4,6}\.tar\.gz$")
@@ -61,6 +62,11 @@ def build_command(action, param):
     if action == "rebuild":
         return [os.path.join(APP_DIR, "update.sh"), "--force"], None
     if action == "reboot":
+        try:   # Schutz vor Neustart-Schleifen (z. B. durch einen übernommenen Container)
+            if float(open("/proc/uptime").read().split()[0]) < 600:
+                return None, "Der Server läuft erst seit wenigen Minuten. Neustart frühestens 10 Minuten nach dem Hochfahren."
+        except (OSError, ValueError):
+            pass
         exe = "/usr/sbin/shutdown" if os.path.exists("/usr/sbin/shutdown") else "/sbin/shutdown"
         return [exe, "-r", "+1", "Neustart über die Wartungsseite der App"], None
     if action == "rollback":
@@ -84,53 +90,32 @@ def build_command(action, param):
     return None, "Unbekannte Aktion."
 
 
-def write_json(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as fh:
-        json.dump(data, fh, ensure_ascii=False)
-    os.chmod(tmp, 0o644)
-    try:
-        os.chown(tmp, 1000, 1000)
-    except PermissionError:
-        pass
-    os.replace(tmp, path)
-
-
 def now():
     return datetime.datetime.now().isoformat(timespec="seconds")
 
 
-def handle(path):
-    name = os.path.basename(path)
+def handle(qfd, lfd, name):
+    """Einen Auftrag aus der Warteschlange ausführen. qfd/lfd: sicher geöffnete Ordner (dir_fd)."""
     job_id = name[:-5] if name.endswith(".json") else ""
+    req = safeio.read_json(qfd, name) if JOB_ID.match(job_id) else None
     try:
-        if not JOB_ID.match(job_id) or os.path.islink(path) or os.path.getsize(path) > 4096:
-            raise ValueError("ungültiger Auftrag")
-        req = json.load(open(path))
-        if not isinstance(req, dict):
-            raise ValueError("ungültiger Auftrag")
-    except (OSError, ValueError):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        os.unlink(name, dir_fd=qfd)
+    except OSError:
+        pass
+    if not isinstance(req, dict):
         return
-    os.remove(path)
     action = str(req.get("action", ""))[:20]
     param = req.get("param")
-    status = {"id": job_id, "action": action, "param": param if isinstance(param, str) else "",
+    status = {"id": job_id, "action": action, "param": param[:200] if isinstance(param, str) else "",
               "by": str(req.get("by", ""))[:80], "requested": str(req.get("at", ""))[:19],
               "started": now(), "state": "running", "rc": None}
-    status_path = os.path.join(LOGS, job_id + ".json")
-    log_path = os.path.join(LOGS, job_id + ".log")
-    write_json(status_path, status)
+    try:
+        log_fd = safeio.create_file(lfd, job_id + ".log")
+    except FileExistsError:
+        return   # gleiche Auftragsnummer schon da: nicht überschreiben
+    safeio.write_json(lfd, job_id + ".json", status)
     cmd, err = build_command(action, param)
-    with open(log_path, "w") as log:
-        os.chmod(log_path, 0o644)
-        try:
-            os.chown(log_path, 1000, 1000)
-        except PermissionError:
-            pass
+    with os.fdopen(log_fd, "w", encoding="utf-8") as log:
         if err:
             log.write(f"Abgelehnt: {err}\n")
             status.update(state="failed", rc=2, ended=now())
@@ -140,7 +125,8 @@ def handle(path):
             env = dict(os.environ, TERM="dumb", NO_COLOR="1", BACKUP_DIR=BACKUP_DIR,
                        PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
             try:
-                rc = subprocess.run(cmd, cwd=APP_DIR, stdout=log, stderr=subprocess.STDOUT, env=env, timeout=7200).returncode
+                rc = subprocess.run(cmd, cwd=APP_DIR, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                    env=env, timeout=7200).returncode
             except subprocess.TimeoutExpired:
                 rc = 124
                 log.write("\nAbgebrochen: Zeitlimit von 2 Stunden überschritten.\n")
@@ -148,45 +134,50 @@ def handle(path):
                 log.write("Der Server startet in 1 Minute neu. App und Tunnel sind danach in 1 bis 2 Minuten wieder da.\n")
             status.update(state="done" if rc == 0 else "failed", rc=rc, ended=now())
             log.write(f"\nEnde {status['ended']}: {'erfolgreich' if rc == 0 else f'Fehler (Code {rc})'}\n")
-    write_json(status_path, status)
+    safeio.write_json(lfd, job_id + ".json", status)
 
 
-def cleanup():
-    jobs = sorted((f for f in os.listdir(LOGS) if f.endswith(".json")), reverse=True)
+def cleanup(lfd):
+    jobs = sorted((f for f in os.listdir(lfd) if f.endswith(".json") and JOB_ID.match(f[:-5])), reverse=True)
     for old in jobs[KEEP_JOBS:]:
         for ext in (".json", ".log"):
             try:
-                os.remove(os.path.join(LOGS, old[:-5] + ext))
+                os.unlink(old[:-5] + ext, dir_fd=lfd)
             except OSError:
                 pass
 
 
 def main():
-    os.makedirs(QUEUE, exist_ok=True)
-    os.makedirs(LOGS, exist_ok=True)
-    for d in (QUEUE, LOGS):
+    lock = open("/run/schuetzen-runner.lock", "w") if os.access("/run", os.W_OK) else None
+    if lock:
         try:
-            os.chown(d, 1000, 1000)
-        except PermissionError:
-            pass
-    lock = open("/run/schuetzen-runner.lock" if os.access("/run", os.W_OK) else os.path.join(LOGS, ".lock"), "w")
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0   # läuft schon, der laufende Dienst arbeitet die Warteschlange ab
+    # Ordner ohne Symlinks öffnen (ein Symlink an ihrer Stelle wird durch einen echten Ordner ersetzt)
+    qfd = safeio.open_dir("data", "jobs", "queue", create=True)
+    lfd = safeio.open_dir("data", "jobs", "log", create=True)
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return 0   # läuft schon, der laufende Dienst arbeitet die Warteschlange ab
-    while True:
-        pending = sorted(f for f in os.listdir(QUEUE) if f.endswith(".json"))
-        if not pending:
-            break
-        handle(os.path.join(QUEUE, pending[0]))
-    # Fremde Dateien in der Warteschlange entfernen, damit systemd nicht dauernd neu startet
-    for f in os.listdir(QUEUE):
-        try:
-            os.remove(os.path.join(QUEUE, f))
-        except OSError:
-            pass
-    cleanup()
-    subprocess.run([sys.executable, os.path.join(APP_DIR, "scripts", "snapshot.py")],
+        for _ in range(50):   # höchstens 50 Aufträge pro Lauf
+            pending = sorted(f for f in os.listdir(qfd) if f.endswith(".json"))
+            if not pending:
+                break
+            handle(qfd, lfd, pending[0])
+        # Fremdes aus der Warteschlange entfernen, damit systemd nicht dauernd neu startet
+        for f in os.listdir(qfd):
+            try:
+                st = os.stat(f, dir_fd=qfd, follow_symlinks=False)
+                if stat.S_ISDIR(st.st_mode):
+                    os.rmdir(f, dir_fd=qfd)
+                else:
+                    os.unlink(f, dir_fd=qfd)
+            except OSError:
+                pass
+        cleanup(lfd)
+    finally:
+        os.close(qfd)
+        os.close(lfd)
+    subprocess.run([sys.executable, "-I", os.path.join(APP_DIR, "scripts", "snapshot.py")],
                    env=dict(os.environ, BACKUP_DIR=BACKUP_DIR), capture_output=True)
     return 0
 

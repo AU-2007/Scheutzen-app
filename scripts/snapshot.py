@@ -12,6 +12,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safeio   # noqa: E402  sicheres Schreiben im Datenordner (keine Symlinks)
+
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(APP_DIR, "data")
 STATUS_FILE = os.path.join(DATA_DIR, "wartung.json")
@@ -103,31 +106,18 @@ def host():
 
 
 def main():
-    try:
-        data = json.load(open(STATUS_FILE))
-    except (OSError, ValueError):
-        data = {}
     vers, head = versions()
-    data.update({
+    changes = {
         "snapshot_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "backups": backups(), "backup_dir": BACKUP_DIR, "backup_dir_mounted": os.path.ismount(BACKUP_DIR),
         "keep": {"neubau": os.environ.get("KEEP_NEUBAU", "3"), "manuell": os.environ.get("KEEP_MANUELL", "5"),
                  "taeglich_tage": os.environ.get("KEEP_DAYS", "14")},
         "versions": vers, "app_commit": head, "timers": timers(), "host": host(),
         "runner_installed": os.path.exists("/etc/systemd/system/schuetzen-jobs.path"),
-    })
-    if data["backups"]:
-        data["backup_count"] = len(data["backups"])
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = STATUS_FILE + ".tmp"
-    with open(tmp, "w") as fh:
-        json.dump(data, fh, indent=1, ensure_ascii=False)
-    os.chmod(tmp, 0o644)
-    try:
-        os.chown(tmp, 1000, 1000)
-    except PermissionError:
-        pass
-    os.replace(tmp, STATUS_FILE)
+    }
+    if changes["backups"]:
+        changes["backup_count"] = len(changes["backups"])
+    safeio.update_json(STATUS_FILE, changes)
 
 
 if __name__ == "__main__":

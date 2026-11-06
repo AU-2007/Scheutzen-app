@@ -125,6 +125,9 @@ Eingebaut:
 - Sicherheits-Header (Content-Security-Policy, Clickjacking-Schutz, kein Caching persönlicher Seiten, HSTS bei HTTPS)
 - Profilbilder werden geprüft und neu gespeichert, übergroße Bilder abgelehnt, Uploads höchstens 10 MB
 - Container ohne Root, ohne Zusatzrechte, mit schreibgeschütztem Dateisystem
+- Trennung Container ↔ Server: Die Wartungsskripte laufen als root, der Datenordner gehört aber dem Container. Darum folgen sie dort keinen Symlinks (`scripts/safeio.py`), lesen und schreiben Sicherung/Wiederherstellung als App-Benutzer (uid 1000) und starten Python isoliert (`python3 -I`). Ein übernommener Container kann so keine Systemdateien lesen, überschreiben oder sich übergeben lassen.
+- Wartungsdienst: nur feste Aktionen, alle Parameter werden auf dem Server noch einmal geprüft, ein Auftrag zur Zeit, kein Neustart in den ersten 10 Minuten nach dem Hochfahren (gegen Neustart-Schleifen)
+- Kalender-Abo-Links: 256 Bit Zufall, nur eigene Termine, für gesperrte Benutzer ungültig, jederzeit erneuerbar
 
 Checkliste vor dem Livegang:
 1. `SECRET_KEY` mit `openssl rand -hex 32` setzen.
@@ -132,8 +135,8 @@ Checkliste vor dem Livegang:
 3. Nur über HTTPS veröffentlichen (Reverse Proxy oder Cloudflare Tunnel), dann `COOKIE_SECURE=1` und `TRUST_PROXY=1`.
 4. `BIND_IP=127.0.0.1`, wenn Proxy oder Tunnel auf demselben Host laufen. Sonst Port 8000 in der Firewall nur für den Proxy öffnen. Port 8000 nie direkt ins Internet weiterleiten.
 5. Den Server in ein eigenes VLAN/DMZ legen, damit er nicht ins restliche Netz kommt.
-6. Backups einrichten (siehe unten) und `data/` vor fremdem Zugriff schützen (`chmod 700 data`). Die Datenbank enthält Namen, Pass-Nummern und Login-IPs.
-7. Regelmäßig aktualisieren: `docker compose build --pull && docker compose up -d`.
+6. Backups einrichten (siehe unten) und `data/` vor fremdem Zugriff schützen (`chmod 700 data`, `chmod 700 /opt/backup`). Die Datenbank enthält Namen, Pass-Nummern und Login-IPs.
+7. Regelmäßig aktualisieren: in der App unter Wartung → App aktualisieren / Linux-Updates installieren.
 8. Datenschutz: Mitglieder darüber informieren, dass Anmeldungen mit IP und Gerät 90 Tage protokolliert werden.
 
 ## Wartung, Sicherung, Updates

@@ -60,9 +60,22 @@ main.wrap { padding-bottom: 60px; }
 .usermenu { position: relative; }
 .usermenu summary { list-style: none; cursor: pointer; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.14); }
 .usermenu summary::-webkit-details-marker { display: none; }
-.usermenu .menu { position: absolute; right: 0; top: 110%; background: var(--card); color: var(--ink);
-  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px; min-width: 200px;
-  display: grid; gap: 8px; }
+.usermenu .menu { position: absolute; right: 0; top: 110%; background: var(--card); color: var(--ink); z-index: 50;
+  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 6px; width: 270px;
+  max-width: calc(100vw - 24px); display: grid; gap: 2px; }
+.menu-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.menu-head .avatar { width: 40px; height: 40px; font-size: 1.05rem; }
+.menu-head div { display: grid; line-height: 1.25; min-width: 0; }
+.menu-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-group { display: grid; gap: 1px; }
+.menu-group + .menu-group { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 3px; }
+.usermenu .menu-sep { border: 0; padding: 6px 10px 2px; }
+.mi { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; color: var(--ink); font: inherit;
+  background: none; border: 0; width: 100%; text-align: left; cursor: pointer; }
+.mi:hover, .mi.on { background: var(--ok-soft); color: var(--green-2); text-decoration: none; }
+.mi svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+.mi.danger { color: var(--red); }
+.mi.danger:hover { background: var(--red-soft); color: var(--red); }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--red); font: inherit; cursor: pointer; }
 .linkbtn.accent { color: var(--green-2); margin-left: 6px; }
 @media (max-width: 560px) {

@@ -31,19 +31,34 @@
         {% if me.avatar %}<img class="avatar sm" src="{{ url_for('avatar', uid=me.id, v=me.avatar) }}" alt="">{% else %}<span class="avatar sm initials">{{ me.name[:1] }}</span>{% endif %}
         <span class="hide-sm">{{ me.name.split(' ')[0] }}</span>
       </summary>
+      {% macro mi(href, icon, label, on=False, cls='') %}<a href="{{ href }}" class="mi {{ 'on' if on }} {{ cls }}"><svg viewBox="0 0 24 24" aria-hidden="true">{{ ICONS[icon]|safe }}</svg><span>{{ label }}</span></a>{% endmacro %}
       <div class="menu">
-        <div class="muted small">{{ me.name }}<br>{{ ROLES[me.role] }}</div>
-        <a href="{{ url_for('profile') }}">Mein Profil &amp; Einstellungen</a>
-        <a href="{{ url_for('help_page') }}">Anleitungen</a>
-        {% if me.role in ('admin', 'leader') %}<a href="{{ url_for('opponents') }}">Gegner</a>{% endif %}
-        {% if me.role == 'admin' %}
-        <div class="menu-sep">Verwaltung</div>
-        <a href="{{ url_for('users') }}">Benutzer</a>
-        <a href="{{ url_for('groups') }}">Trainingsgruppen</a>
-        <a href="{{ url_for('club') }}">Verein</a>
-        <a href="{{ url_for('admin_maintenance') }}">Wartung</a>
+        <div class="menu-head">
+          {% if me.avatar %}<img class="avatar" src="{{ url_for('avatar', uid=me.id, v=me.avatar) }}" alt="">{% else %}<span class="avatar initials">{{ me.name[:1] }}</span>{% endif %}
+          <div><b>{{ me.name }}</b><span class="muted small">{{ ROLES[me.role] }}</span></div>
+        </div>
+        <div class="menu-group">
+          {{ mi(url_for('profile'), 'user', 'Profil & Einstellungen', ep == 'profile') }}
+          {{ mi(url_for('profile') ~ '#kalender', 'calendar', 'Handy-Kalender') }}
+          {{ mi(url_for('help_page'), 'help', 'Anleitungen', ep == 'help_page') }}
+        </div>
+        {% if me.role in ('admin', 'leader') %}
+        <div class="menu-group">
+          <div class="menu-sep">Mannschaft</div>
+          {{ mi(url_for('opponents'), 'target', 'Gegner', ep == 'opponents') }}
+        </div>
         {% endif %}
-        <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="linkbtn">Abmelden</button></form>
+        {% if me.role == 'admin' %}
+        <div class="menu-group">
+          <div class="menu-sep">Verwaltung</div>
+          {{ mi(url_for('users'), 'users', 'Benutzer', ep in ('users', 'user_edit')) }}
+          {{ mi(url_for('groups'), 'groups', 'Trainingsgruppen', ep == 'groups') }}
+          {{ mi(url_for('club'), 'home', 'Verein', ep == 'club') }}
+          {{ mi(url_for('admin_maintenance'), 'tool', 'Wartung', ep == 'admin_maintenance') }}
+        </div>
+        {% endif %}
+        <form method="post" action="{{ url_for('logout') }}" class="menu-group menu-foot"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="mi danger"><svg viewBox="0 0 24 24" aria-hidden="true">{{ ICONS['logout']|safe }}</svg><span>Abmelden</span></button></form>
       </div>
     </details>
   </div>
@@ -58,5 +73,11 @@
     <a class="small" href="{{ url_for('profile') }}#kalender">Immer automatisch?</a></div>{% endif %}
   {% block content %}{% endblock %}
 </main>
+<script>
+  document.addEventListener('click', function (e) {
+    var m = document.querySelector('.usermenu[open]');
+    if (m && !m.contains(e.target)) m.removeAttribute('open');
+  });
+</script>
 </body>
 </html>

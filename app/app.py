@@ -32,6 +32,18 @@ ACCENTS = {
     "grau": ("Anthrazit", "#2b2f33", "#454b51", "#7d868f", "#98a1aa"),
 }
 THEMES = {"auto": "Automatisch", "light": "Hell", "dark": "Dunkel"}
+# Feste Symbole fürs Profilmenü (eigene SVG-Pfade, keine Benutzereingaben)
+ICONS = {
+    "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+    "calendar": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    "help": '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>',
+    "target": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    "users": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2.2.6 3.5 2.4 3.5 5.5"/>',
+    "groups": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    "home": '<path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+    "tool": '<path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L3 18l3 3 6.2-6.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/>',
+    "logout": '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>',
+}
 ROLES = {"admin": "Admin", "leader": "Mannschaftsführer", "trainer": "Trainer", "shooter": "Schütze"}
 AVAIL = {"ja": "Zusage", "vielleicht": "Vielleicht", "nein": "Absage"}
 DISCIPLINES = ["Luftgewehr", "Luftgewehr Auflage", "Luftpistole", "Luftpistole Auflage", "Luftpistole Standard",
@@ -671,7 +683,7 @@ def inject():
         session["csrf"] = secrets.token_hex(16)
     me_ = current_user()
     acc = ACCENTS.get(me_["accent"] if me_ else "gruen", ACCENTS["gruen"])
-    return dict(csrf=session["csrf"], me=me_, ROLES=ROLES, AVAIL=AVAIL, ACC=acc,
+    return dict(csrf=session["csrf"], me=me_, ROLES=ROLES, ICONS=ICONS, AVAIL=AVAIL, ACC=acc,
                 VEREIN=setting("club_name") or VEREIN_NAME, today=date.today().isoformat(), RWK_HOME=RWK_HOME)
 
 

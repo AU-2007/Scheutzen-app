@@ -1975,15 +1975,17 @@ def admin_dashboard():
             warnings.append("Die letzte Sicherung ist älter als 36 Stunden. Auf dem Server prüfen: ./scripts/status.sh")
         if maint.get("pending_security"):
             warnings.append(f"{maint['pending_security']} Sicherheitsupdates für Linux stehen aus. Sie werden nachts automatisch "
-                            "installiert, sofort mit: ./scripts/wartung.sh")
+                            "installiert, sofort unter Wartung → Linux-Updates installieren.")
         if maint.get("reboot_required"):
-            warnings.append("Der Server braucht einen Neustart (Kernel-Update). Er erfolgt automatisch um 04:30.")
+            warnings.append("Der Server braucht einen Neustart (Kernel-Update). Automatisch um 04:30 oder sofort unter Wartung → Server neu starten.")
         for p_ in maint["problems"]:
             warnings.append(f"Letzte Wartung: {p_}")
     if not server["secret_env"]:
-        warnings.append("SECRET_KEY ist nicht in der .env gesetzt. Die App nutzt einen automatisch erzeugten Schlüssel.")
+        warnings.append("SECRET_KEY ist nicht in der .env gesetzt. Die App nutzt einen automatisch erzeugten Schlüssel (funktioniert, "
+                        "besser einen eigenen setzen: openssl rand -hex 32).")
     if not server["https"]:
-        warnings.append("Die Seite läuft ohne HTTPS. Für den Zugriff von außen bitte einen Reverse Proxy mit HTTPS einrichten.")
+        warnings.append("Die App erkennt kein HTTPS. Läuft sie hinter Cloudflare Tunnel oder einem Reverse Proxy: in der .env "
+                        "TRUST_PROXY=1 und COOKIE_SECURE=1 setzen. Sonst einen Reverse Proxy mit HTTPS einrichten.")
     elif not server["cookie_secure"]:
         warnings.append("HTTPS ist aktiv, aber COOKIE_SECURE=1 ist in der .env noch nicht gesetzt.")
     if server["disk_pct"] >= 90:

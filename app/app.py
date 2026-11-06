@@ -1826,7 +1826,8 @@ def module_versions(maint):
             ver = metadata.version(name)
         except metadata.PackageNotFoundError:
             ver = None
-        mods.append({"name": name, "version": ver, "latest": outdated.get(name.lower())})
+        latest = outdated.get(name.lower())
+        mods.append({"name": name, "version": ver, "latest": latest if latest and latest != ver else None})
     os_name = ""
     try:
         for line in open("/etc/os-release"):

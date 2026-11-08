@@ -21,7 +21,7 @@ a = app.test_client(); a.get("/login"); post(a, "/login", {"username": "admin", 
 post(a, "/passwort", {"old": "adminpass1", "new": "adminpass2", "new2": "adminpass2"})
 post(a, "/verein", {"club_name": "SV Unterdorf"})
 # --- Import der DISAG-Vorlage
-raw = open("/mnt/user-data/attachments/df396d7c-17d2-5ad6-9363-025ceca018f6/76c78443-1793037843097_FLEX_SchuetzenMitVereinWaffenart.csv", "rb").read()
+raw = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "disag_flex_muster.csv"), "rb").read()
 r = a.post("/import/schuetzen", data={"csrf": csrf(a), "csv": (io.BytesIO(raw), "flex.csv")}, content_type="multipart/form-data")
 body = r.get_data(as_text=True)
 for f in ("pass_nr", "nachname", "vorname", "club", "birth_year", "gender"):

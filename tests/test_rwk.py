@@ -18,7 +18,7 @@ a = app.test_client(); a.get("/login"); post(a, "/login", {"username": "admin", 
 post(a, "/passwort", {"old": "adminpass1", "new": "adminpass2", "new2": "adminpass2"})
 post(a, "/mannschaft/neu", {"name": "LG 3", "discipline": "Luftgewehr", "leader_id": "1"})
 tid = db.execute("select id from teams").fetchone()[0]
-raw = open("/mnt/user-data/attachments/df396d7c-17d2-5ad6-9363-025ceca018f6/80514dc1-rwktermine_60_Bereichsklasse_A_Nord.ics", "rb").read()
+raw = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "rwk_bereichsklasse_a_nord.ics"), "rb").read()
 r = a.post(f"/mannschaft/{tid}/rwk-import", data={"csrf": csrf(a), "rwk_name": "SV Eisnebach 3", "ics": (io.BytesIO(raw), "p.ics")}, content_type="multipart/form-data")
 body = r.get_data(as_text=True)
 check("Eure Mannschaft: <b>SV Eisenbach 3</b>" in body and "erkannt aus" in body, "fuzzy own")

@@ -69,12 +69,14 @@
 </header>
 {% endif %}
 <main class="wrap">
+  <div class="flashes" id="flashes">
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
   {% endwith %}
   {% set ics_offer = session.pop('ics_offer', None) if me else None %}
   {% if ics_offer and ics_offer.startswith('/') %}<div class="flash ok ics-offer"><a class="btn small-btn primary" href="{{ ics_offer }}">📅 In meinen Kalender eintragen</a>
     <a class="small" href="{{ url_for('profile') }}#kalender">Immer automatisch?</a></div>{% endif %}
+  </div>
   {% block content %}{% endblock %}
 </main>
 <script>
@@ -87,6 +89,31 @@
     if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'confirm_past'; f.appendChild(h); }
     h.value = '1';
   }, true);
+  // Rückmeldungen (Zusage/Absage …): nach dem Speichern an derselben Stelle bleiben
+  var KEEP = 'keepScroll';
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (e.defaultPrevented || !f.matches || !f.matches('form.avail, form[data-keep]')) return;
+    try {
+      sessionStorage.setItem(KEEP, JSON.stringify({ path: location.pathname, action: f.getAttribute('action'),
+        top: f.getBoundingClientRect().top, y: window.scrollY, t: Date.now() }));
+    } catch (_) {}
+  });
+  (function () {
+    var k;
+    try { k = JSON.parse(sessionStorage.getItem(KEEP) || 'null'); sessionStorage.removeItem(KEEP); } catch (_) { return; }
+    if (!k || k.path !== location.pathname || Date.now() - k.t > 30000) return;
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    var box = document.getElementById('flashes');
+    if (box && box.children.length) {          // Meldungen unten einblenden statt oben
+      box.classList.add('toast');
+      box.addEventListener('click', function (e) { if (!e.target.closest('a')) box.remove(); });
+      if (!box.querySelector('.error, .ics-offer')) setTimeout(function () { box.classList.add('gone'); }, 3000);
+      else if (!box.querySelector('.error')) setTimeout(function () { box.classList.add('gone'); }, 9000);
+    }
+    var f = document.querySelector('form[action="' + (k.action || '').replace(/"/g, '') + '"]');
+    window.scrollTo(0, f ? window.scrollY + f.getBoundingClientRect().top - k.top : k.y);
+  })();
   document.addEventListener('click', function (e) {
     var m = document.querySelector('.usermenu[open]');
     if (m && !m.contains(e.target)) m.removeAttribute('open');

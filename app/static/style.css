@@ -713,3 +713,8 @@ details.flush-fold { padding: 0; overflow: hidden; }
 details.flush-fold > summary { padding: 12px 14px; }
 details.flush-fold[open] > summary { border-bottom: 1px solid var(--line); }
 details.flush-fold table { margin: 0; }
+/* Meldungen als Einblendung unten, wenn die Seite an der Stelle bleibt */
+.flashes.toast { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 50;
+  max-width: 560px; margin: 0 auto; display: grid; gap: 8px; transition: opacity .4s, transform .4s; }
+.flashes.toast .flash { margin: 0; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.flashes.toast.gone { opacity: 0; transform: translateY(20px); pointer-events: none; }

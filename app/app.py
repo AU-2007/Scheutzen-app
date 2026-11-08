@@ -328,7 +328,7 @@ MIGRATIONS = [
     ("training_slots", "area2", "TEXT NOT NULL DEFAULT 'KK'"),   # Name Bereich 2
     ("training_slots", "lanes2", "INTEGER NOT NULL DEFAULT 0"),  # Stände Bereich 2, 0 = kein zweiter Bereich
     ("training_rsvp", "area", "INTEGER"),                        # 1/2 = Bereich, NULL = egal / noch nicht zugeteilt
-    ("users", "player_id", "TEXT NOT NULL DEFAULT ''"),   # Spieler-ID (z. B. aus DISAG/Verband)
+    ("users", "player_id", "TEXT NOT NULL DEFAULT ''"),   # Schützen-ID (z. B. aus DISAG/Verband)
     ("users", "pass_nr", "TEXT NOT NULL DEFAULT ''"),     # Schützenpass-Nummer
     ("users", "club", "TEXT NOT NULL DEFAULT ''"),        # Verein, falls Gastschütze
     ("users", "theme", "TEXT NOT NULL DEFAULT 'auto'"),   # auto | light | dark
@@ -2944,7 +2944,7 @@ def relay_start(m, relay):
 
 
 # ---------------------------------------------------------------- DISAG-Export
-DISAG_COLUMNS = ["Durchgang", "Startzeit", "Stand", "Nachname", "Vorname", "Pass-Nr", "Spieler-ID",
+DISAG_COLUMNS = ["Durchgang", "Startzeit", "Stand", "Nachname", "Vorname", "Pass-Nr", "Schützen-ID",
                  "Verein", "Mannschaft", "Heim/Gast", "Disziplin", "Datum", "Wettkampf"]
 
 
@@ -3005,7 +3005,7 @@ def csv_response(data, name):
 @login_required
 def disag_flex_export(mid):
     """Alle Schützen eines Wettkampfs (eigene + Gegner) im FLEX-Format, sortiert nach Durchgang und Stand.
-    Ohne Pass-Nr./Spieler-ID wird eine feste Ersatznummer vergeben (90000 + Benutzer-Nr. bzw. 95000 + Gegner-Nr.)."""
+    Ohne Pass-Nr./Schützen-ID wird eine feste Ersatznummer vergeben (90000 + Benutzer-Nr. bzw. 95000 + Gegner-Nr.)."""
     m = get_match(mid)
     t = get_team(m["team_id"])
     if not can_manage(t):
@@ -3598,16 +3598,16 @@ def opp_team_by_label(label):
 # ---------------------------------------------------------------- CSV-Import (Schützen, Gegner)
 IMPORT_FIELDS = {
     "schuetzen": {"vorname": "Vorname", "nachname": "Nachname", "name": "Name (komplett)",
-                  "player_id": "Spieler-ID", "pass_nr": "Pass-Nr. / Ausweisnummer", "club": "Verein",
+                  "player_id": "Schützen-ID", "pass_nr": "Pass-Nr. / Ausweisnummer", "club": "Verein",
                   "birth_year": "Jahrgang", "gender": "Geschlecht", "": "– ignorieren –"},
     "gegner": {"club": "Verein", "team": "Mannschaft", "location": "Ort / Schießstand",
                "vorname": "Schütze Vorname", "nachname": "Schütze Nachname", "name": "Schütze (Name komplett)",
-               "pass_nr": "Pass-Nr. / Ausweisnummer", "player_id": "Spieler-ID", "birth_year": "Jahrgang",
+               "pass_nr": "Pass-Nr. / Ausweisnummer", "player_id": "Schützen-ID", "birth_year": "Jahrgang",
                "gender": "Geschlecht", "": "– ignorieren –"},
 }
 HEADER_HINTS = {
     "vorname": ("vorname", "first"), "nachname": ("nachname", "familienname", "last", "zuname"),
-    "name": ("name", "schütze", "schuetze"), "player_id": ("id", "startnummer", "startnr", "personennummer", "mitgliedsnummer", "spieler"),
+    "name": ("name", "schütze", "schuetze"), "player_id": ("schützen-id", "schuetzen-id", "schützenid", "schuetzenid", "id", "startnummer", "startnr", "personennummer", "mitgliedsnummer", "spieler"),
     "pass_nr": ("pass", "ausweis"), "club": ("verein", "club"), "birth_year": ("jahrgang", "geburtsjahr", "geburt"),
     "gender": ("geschlecht", "sex", "gender"), "team": ("mannschaft", "team"), "location": ("ort", "stand", "halle"),
 }
@@ -3638,6 +3638,10 @@ def guess_mapping(header, kind):
         pick = ""
         if hl == "name" and has_first and "nachname" in fields and "nachname" not in out:
             out.append("nachname")   # DISAG: "Name" + "Vorname" -> Name ist der Nachname
+            continue
+        # "Schützen-ID", "Schützennr.", "Schützen-ID" … ist die ID, nicht der Name (enthält ja "schütze")
+        if "player_id" in fields and "player_id" not in out and re.search(r"(sch(ü|ue)tzen?|spieler)[\s._-]*(id|nr|nummer)", hl):
+            out.append("player_id")
             continue
         for f in fields:
             if f and any(word in hl for word in HEADER_HINTS.get(f, ())):

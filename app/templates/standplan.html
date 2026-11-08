@@ -93,7 +93,7 @@
   <div class="card stack">
     <b>Auf die DISAG-Anlage übertragen</b>
     <p class="muted small" style="margin:0"><b>FLEX-Import</b> („Schützen mit Verein und Waffenart“): Ausweisnummer, Name, Vorname, Verein, Jahrgang, Waffenart ({{ waffenart or 'Disziplin der Mannschaft hat kein DISAG-Kürzel' }}) und Geschlecht aller {{ own|length + opp|length }} Schützen, in der Reihenfolge des Standplans. Im OpticScore Server über den FLEX-Import laden.</p>
-    {% if missing %}<p class="small" style="margin:0"><span class="pill av-vielleicht">Hinweis</span> Ohne Pass-Nr. oder Spieler-ID: {{ missing|join(', ') }}. Sie bekommen eine Ersatznummer. Jahrgang und Geschlecht fehlen bei {{ no_year }} Schützen.</p>{% elif no_year %}<p class="small muted" style="margin:0">Jahrgang oder Geschlecht fehlen bei {{ no_year }} Schützen (im Benutzerprofil bzw. per Import ergänzen).</p>{% endif %}
+    {% if missing %}<p class="small" style="margin:0"><span class="pill av-vielleicht">Hinweis</span> Ohne Pass-Nr. oder Schützen-ID: {{ missing|join(', ') }}. Sie bekommen eine Ersatznummer. Jahrgang und Geschlecht fehlen bei {{ no_year }} Schützen.</p>{% elif no_year %}<p class="small muted" style="margin:0">Jahrgang oder Geschlecht fehlen bei {{ no_year }} Schützen (im Benutzerprofil bzw. per Import ergänzen).</p>{% endif %}
     <div class="inline wrap">
       <a class="btn small-btn primary" href="{{ url_for('disag_flex_export', mid=m.id) }}">FLEX-Datei herunterladen (.csv)</a>
       <a class="btn small-btn" href="{{ url_for('disag_export', mid=m.id) }}">Startliste mit Ständen (.csv)</a>

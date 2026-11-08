@@ -18,7 +18,7 @@
   </label>
   <p class="muted small">Admin: verwaltet alles · Mannschaftsführer: verwaltet zugewiesene Mannschaften · Trainer: legt Trainings und Sondertrainings an · Schütze: Termine sehen, zu- und absagen</p>
   <div class="row2">
-    <label>Spieler-ID<input name="player_id" value="{{ user.player_id if user }}" placeholder="z. B. aus DISAG oder Verband"></label>
+    <label>Schützen-ID<input name="player_id" value="{{ user.player_id if user }}" placeholder="z. B. aus DISAG oder Verband"></label>
     <label>Pass-Nr.<input name="pass_nr" value="{{ user.pass_nr if user }}"></label>
   </div>
   <label>Verein <span class="muted small">(nur bei Gastschützen nötig)</span><input name="club" value="{{ user.club if user }}"></label>

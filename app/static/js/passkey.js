@@ -12,6 +12,15 @@
   }
   function msg(el, text) { var m = el.parentNode.querySelector('.pk-msg'); if (m) { m.textContent = text; m.hidden = !text; } }
   var supported = !!(window.PublicKeyCredential && navigator.credentials);
+  // Fehler, die nicht vom Browser selbst kommen, stammen fast immer von einer Erweiterung (Passwort-Manager)
+  function hint(e) {
+    var t = String(e && e.message || e || '');
+    var ext = /tabs\.|extension|browser\.|runtime|unsupported by|Type error for parameter/i.test(t) ||
+              !(e && /Error$/.test(e.name || '') && ['NotSupportedError', 'SecurityError', 'AbortError', 'UnknownError', 'ConstraintError'].indexOf(e.name) >= 0);
+    return ext ? 'Ein Passwort-Manager oder eine andere Browser-Erweiterung (z. B. Bitwarden) hat den Passkey abgefangen und ist dabei hängen geblieben. ' +
+                 'Schalte dort die Passkey-Funktion aus, nimm einen anderen Browser (z. B. Chrome) oder richte unten die Authenticator-App ein. (' + t + ')'
+               : 'Hat nicht geklappt: ' + t;
+  }
 
   // Anmelden (ohne Passwort) oder als zweiter Schritt
   document.querySelectorAll('[data-passkey-login]').forEach(function (btn) {
@@ -32,7 +41,7 @@
         if (r.ok) { location.href = r.next || '/'; return; }
         msg(btn, r.msg || 'Anmeldung mit Passkey hat nicht geklappt.'); btn.disabled = false;
       }).catch(function (e) {
-        msg(btn, e && e.name === 'NotAllowedError' ? 'Abgebrochen.' : 'Anmeldung mit Passkey hat nicht geklappt.');
+        msg(btn, e && e.name === 'NotAllowedError' ? 'Abgebrochen.' : hint(e));
         btn.disabled = false;
       });
     });
@@ -59,7 +68,7 @@
         msg(btn, r.msg || 'Hat nicht geklappt.'); btn.disabled = false;
       }).catch(function (e) {
         msg(btn, e && e.name === 'InvalidStateError' ? 'Dieses Gerät ist schon eingerichtet.' :
-                 e && e.name === 'NotAllowedError' ? 'Abgebrochen.' : 'Hat nicht geklappt: ' + (e && e.message || e));
+                 e && e.name === 'NotAllowedError' ? 'Abgebrochen.' : hint(e));
         btn.disabled = false;
       });
     });

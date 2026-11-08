@@ -25,7 +25,7 @@
   </div>
   <fieldset class="editors">
     <legend>RWK-Onlinemelder</legend>
-    <label>Link zur Klasse (Tabelle, Wettkampfplan)<input name="rwk_url" value="{{ team.rwk_url if team }}" placeholder="https://www.rwk-onlinemelder.de/online/listen/…" inputmode="url"></label>
+    <label id="rwk">Link zur Klasse (Tabelle, Wettkampfplan)<input name="rwk_url" value="{{ team.rwk_url if team }}" placeholder="https://www.rwk-onlinemelder.de/online/listen/…" inputmode="url"></label>
     <label>Name der Mannschaft dort<input name="rwk_name" value="{{ team.rwk_name if team }}" placeholder="z. B. SV Musterdorf 1"></label>
   </fieldset>
   {% if is_admin %}

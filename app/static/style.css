@@ -688,3 +688,28 @@ section[id] { scroll-margin-top: 120px; }
 @media (max-width: 560px) { .card.fold > summary span { text-align: left; flex-basis: 100%; } }
 .hint-box ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9rem; }
 .hint-box > b + ul { margin-top: 6px; }
+
+/* Mannschaftsseite */
+.team-tools { margin: 10px 0 14px; }
+.team-tools .rwk-logo { font-size: .6rem; padding: 1px 4px; }
+.sub-head { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 12px 0 6px; }
+
+/* Wettkampfseite */
+.edited-hint { display: inline-block; margin: 6px 0 0; font-size: .8rem; color: var(--gold); background: var(--gold-soft); padding: 2px 8px; border-radius: 999px; }
+#verwalten .move-history { margin: 0; }
+
+/* Mannschaften nach Kategorie (LG, LP, KK …) */
+.cat-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 1.05rem; margin: 18px 0 8px; }
+h3.cat-head { font-size: .95rem; margin: 12px 0 6px; }
+.cat-badge { display: inline-grid; place-items: center; min-width: 34px; height: 24px; padding: 0 6px; border-radius: 6px;
+  background: var(--green-2); color: #fff; font-size: .75rem; font-weight: 700; letter-spacing: .03em; }
+.my-teams { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.my-team { display: grid; gap: 3px; color: var(--ink); }
+.my-team:hover { text-decoration: none; border-color: var(--green-2); }
+.my-team-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.my-team-next { margin-top: 2px; }
+/* Aufklappbare Tabelle (weitere Schützen) */
+details.flush-fold { padding: 0; overflow: hidden; }
+details.flush-fold > summary { padding: 12px 14px; }
+details.flush-fold[open] > summary { border-bottom: 1px solid var(--line); }
+details.flush-fold table { margin: 0; }

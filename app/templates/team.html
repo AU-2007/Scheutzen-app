@@ -2,24 +2,17 @@
 {% block title %}{{ t.name }}{% endblock %}
 {% block content %}
 <p><a href="{{ url_for('teams') }}" class="back">← Mannschaften</a></p>
-<div class="head-row">
-  <div>
-    <h1>{{ t.name }}</h1>
-    <div class="muted">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %}{% if t.season %} · Saison {{ t.season }}{% endif %}</div>
-    <div class="small">Mannschaftsführer: <b>{{ t.leader_name or '–' }}</b>{% if t.ext_id %} · Mannschafts-ID {{ t.ext_id }}{% endif %}</div>
-    {% if editors %}<div class="small muted">Bearbeiter: {{ editors|map(attribute='name')|join(', ') }}</div>{% endif %}
-  </div>
-  {% if manage %}<a class="btn" href="{{ url_for('team_edit', tid=t.id) }}">Bearbeiten</a>{% endif %}
-</div>
-
-<div class="rwk-box card">
-  <div><span class="rwk-logo" aria-hidden="true">RWK</span> <b>RWK-Onlinemelder</b>{% if not t.rwk_url %} <span class="muted small">· noch kein Link hinterlegt</span>{% endif %}</div>
-  <div class="inline wrap">
-    {% if t.rwk_url %}<a class="btn small-btn" href="{{ t.rwk_url }}" target="_blank" rel="noopener">Tabelle &amp; Ergebnisse ↗</a>{% endif %}
-    {% if manage %}<a class="btn small-btn" href="{{ url_for('rwk_import', tid=t.id) }}">Wettkampfplan importieren</a>{% endif %}
-    {% if manage %}<a class="btn small-btn" href="{{ url_for('team_flex_export', tid=t.id) }}" title="Alle Schützen der Mannschaft als DISAG-FLEX-Datei">Schützen für DISAG (.csv)</a>{% endif %}
-    {% if manage and not t.rwk_url %}<a class="btn small-btn" href="{{ url_for('team_edit', tid=t.id) }}">Link hinterlegen</a>{% endif %}
-  </div>
+<h1>{{ t.name }}</h1>
+<div class="muted">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %} · Saison {{ season_now }}</div>
+<div class="small">Mannschaftsführer: <b>{{ t.leader_name or '–' }}</b>{% if t.ext_id %} · Mannschafts-ID {{ t.ext_id }}{% endif %}{% if editors %} · Bearbeiter: {{ editors|map(attribute='name')|join(', ') }}{% endif %}</div>
+<div class="inline wrap team-tools">
+  {% if t.rwk_url %}<a class="btn small-btn" href="{{ t.rwk_url }}" target="_blank" rel="noopener"><span class="rwk-logo" aria-hidden="true">RWK</span> Tabelle ↗</a>{% endif %}
+  {% if manage %}
+  <a class="btn small-btn" href="{{ url_for('team_edit', tid=t.id) }}">Bearbeiten</a>
+  <a class="btn small-btn" href="{{ url_for('rwk_import', tid=t.id) }}">Plan importieren</a>
+  <a class="btn small-btn" href="{{ url_for('team_flex_export', tid=t.id) }}" title="Alle Schützen der Mannschaft als DISAG-FLEX-Datei">DISAG-Datei</a>
+  {% if not t.rwk_url %}<a class="btn small-btn" href="{{ url_for('team_edit', tid=t.id) }}#rwk" title="Link zum RWK-Onlinemelder hinterlegen">RWK-Link fehlt</a>{% endif %}
+  {% endif %}
 </div>
 
 <div class="stats">
@@ -33,34 +26,34 @@
     <h2>Wettkämpfe</h2>
     {% if manage %}<a class="btn primary small-btn" href="{{ url_for('match_edit', tid=t.id) }}">+ Wettkampf</a>{% endif %}
   </div>
-  {% if matches %}
-  <div class="card flush">
-    <table>
-      <thead><tr><th>Datum</th><th>Gegner</th><th class="num">Ergebnis</th></tr></thead>
-      <tbody>
-      {% for m in matches %}
+  {% set upcoming = matches|selectattr('date', 'ge', today)|list %}
+  {% set played = matches|selectattr('date', 'lt', today)|list %}
+  {% macro mrow(m) %}
         <tr class="{{ 'past' if m.date < today and not m.outcome }}">
           <td class="nowrap">{{ m.date[8:10] }}.{{ m.date[5:7] }}.{{ m.date[2:4] }}</td>
-          <td><a href="{{ url_for('match', mid=m.id) }}">{{ 'vs.' if m.home else '@' }} {{ m.opponent }}</a></td>
+          <td><a href="{{ url_for('match', mid=m.id) }}">{{ 'vs.' if m.home else '@' }} {{ m.opponent }}</a>{% if m.edited_at %} <span class="muted small" title="nachträglich bearbeitet">✎</span>{% endif %}</td>
           <td class="num nowrap">
-            {% if m.total is not none %}{{ m.total|ringe }} : {{ m.opponent_score|ringe }}{% else %}<span class="muted">–</span>{% endif %}
+            {% if m.total is not none %}{{ m.total|ringe }} : {{ m.opponent_score|ringe }}{% elif m.date >= today %}<span class="muted small">{{ m.time or '' }}</span>{% else %}<span class="muted">–</span>{% endif %}
             {% if m.outcome %}<span class="dot {{ m.outcome }}" title="{{ m.outcome|capitalize }}"></span>{% endif %}
           </td>
         </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">Noch keine Wettkämpfe eingetragen.</p>
+  {% endmacro %}
+  {% if upcoming %}
+  <h3 class="sub-head">Nächste</h3>
+  <div class="card flush"><table><tbody>{% for m in upcoming %}{{ mrow(m) }}{% endfor %}</tbody></table></div>
   {% endif %}
+  {% if played %}
+  <h3 class="sub-head">Gespielt</h3>
+  <div class="card flush"><table><tbody>{% for m in played|reverse %}{{ mrow(m) }}{% endfor %}</tbody></table></div>
+  {% endif %}
+  {% if not matches %}<p class="muted">Noch keine Wettkämpfe eingetragen.</p>{% endif %}
 </section>
 
 <section>
   <h2>Schützen</h2>
   <div class="card flush">
     <table>
-      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th></th>{% endif %}</tr></thead>
+      <thead><tr><th>Name</th><th class="num">Wk.</th><th class="num">Schnitt</th><th class="num">Bestes</th>{% if manage %}<th class="num" title="Einsätze in der Saison {{ season_now }} (RWK VII)">Saison</th><th></th>{% endif %}</tr></thead>
       <tbody>
       {% for s in members %}
         <tr>
@@ -75,7 +68,8 @@
           <td class="num">{{ s.n }}</td>
           <td class="num strong">{{ s.avg|ringe if s.avg is not none else '–' }}</td>
           <td class="num">{{ s.best|ringe }}</td>
-          {% if manage %}
+          {% if manage %}{% set ri = rwk.get(s.id) %}
+          <td class="num small nowrap">{% if ri %}<a href="#saison" class="{{ 'bad-text' if ri.problems else 'muted' }}" title="{{ ri.problems|join(', ') }}">{{ ri.starts }}/{{ ri.limit }}{{ ' ⚠' if ri.problems }}</a>{% endif %}</td>
           <td class="num">
             <form method="post" action="{{ url_for('team_remove_member', tid=t.id, uid=s.id) }}" onsubmit='return confirm({{ (s.name ~ " aus der Mannschaft entfernen?")|tojson }})'>
               <input type="hidden" name="csrf" value="{{ csrf }}"><button class="x" title="Entfernen">✕</button>
@@ -84,7 +78,7 @@
           {% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="5" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
+        <tr><td colspan="6" class="muted">Noch keine Schützen in dieser Mannschaft.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -107,9 +101,10 @@
 </section>
 
 {% if manage and members %}
-<section id="saison">
-  <h2>Einsätze Saison {{ season_now }}</h2>
-  <p class="muted small" style="margin-top:-4px">Nach RWK-Ordnung VII, gezählt über alle Mannschaften mit Disziplin {{ t.discipline or '(ohne)' }}. Beginnt jede Saison am 1. August von vorn. Auf-/Abstiegskämpfe zählen nicht. Mit „Anpassen“ überschreibst du die Zählung für diese Saison.</p>
+{% set rwk_bad = rwk.values()|selectattr('problems')|list %}
+<details class="card fold" id="saison" {{ 'open' if rwk_bad }}>
+  <summary><b>Einsätze &amp; Bindung</b><span class="small {{ 'bad-text' if rwk_bad else 'muted' }}">{% if rwk_bad %}⚠ {{ rwk_bad|length }} Hinweis{{ 'e' if rwk_bad|length != 1 }}{% else %}RWK-Ordnung VII · alles im Rahmen{% endif %}</span></summary>
+  <p class="muted small" style="margin:10px 0">Nach RWK-Ordnung VII, gezählt über alle Mannschaften mit Disziplin {{ t.discipline or '(ohne)' }}. Beginnt jede Saison am 1. August von vorn. Auf-/Abstiegskämpfe zählen nicht. Mit „Anpassen“ überschreibst du die Zählung für diese Saison.</p>
   <div class="list">
   {% for s in members %}{% set ri = rwk.get(s.id) %}{% if ri %}{% set o = ri.override %}
     <details class="card rwk-row">
@@ -148,7 +143,7 @@
     </details>
   {% endif %}{% endfor %}
   </div>
-</section>
+</details>
 <script>
   document.querySelectorAll('[data-bind]').forEach(function (sel) {
     var box = sel.closest('form').querySelector('[data-bound-team]');

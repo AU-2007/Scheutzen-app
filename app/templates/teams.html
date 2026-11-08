@@ -6,8 +6,10 @@
   {% if me.role == 'admin' %}<a class="btn primary" href="{{ url_for('team_edit') }}">+ Neue Mannschaft</a>{% endif %}
 </div>
 {% if teams %}
+{% for short, label, group in teams|nach_disziplin %}
+<h2 class="cat-head"><span class="cat-badge">{{ short or '·' }}</span> {{ label }} <span class="muted small">{{ group|length }} Mannschaft{{ 'en' if group|length != 1 }}</span></h2>
 <div class="grid">
-  {% for t in teams %}
+  {% for t in group %}
   <a class="card tile" href="{{ url_for('team', tid=t.id) }}">
     <div class="strong">{{ t.name }}</div>
     <div class="muted small">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %}{% if t.season %} · {{ t.season }}{% endif %}</div>
@@ -16,6 +18,7 @@
   </a>
   {% endfor %}
 </div>
+{% endfor %}
 {% else %}
 <p class="muted">Noch keine Mannschaften angelegt.</p>
 {% endif %}

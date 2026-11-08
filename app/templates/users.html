@@ -16,7 +16,7 @@
   {% if show == 'gesperrt' %}<input type="hidden" name="zeige" value="gesperrt">{% endif %}
   <input type="search" name="q" value="{{ flt.q }}" placeholder="Name, Benutzername, Pass-Nr. …" aria-label="Suchen">
   <select name="rolle" aria-label="Rolle"><option value="">Alle Rollen</option>{% for k, label in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if flt.rolle == k }}>{{ label }}</option>{% endfor %}</select>
-  <select name="team" aria-label="Mannschaft"><option value="">Alle Mannschaften</option>{% for t in teams %}<option value="{{ t.id }}" {{ 'selected' if flt.team == t.id }}>{{ t.name }}</option>{% endfor %}</select>
+  <select name="team" aria-label="Mannschaft"><option value="">Alle Mannschaften</option>{% for short, label, group in teams|nach_disziplin %}<optgroup label="{{ short ~ ' · ' if short }}{{ label }}">{% for t in group %}<option value="{{ t.id }}" {{ 'selected' if flt.team == t.id }}>{{ t.name }}</option>{% endfor %}</optgroup>{% endfor %}</select>
   <select name="gruppe" aria-label="Trainingsgruppe"><option value="">Alle Gruppen</option>{% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if flt.gruppe == g.id }}>{{ g.name }}</option>{% endfor %}</select>
   <select name="verein" aria-label="Verein"><option value="">Alle Vereine</option><option value="-" {{ 'selected' if flt.verein == '-' }}>ohne Verein</option>{% for c in clubs %}<option value="{{ c }}" {{ 'selected' if flt.verein == c }}>{{ c }}</option>{% endfor %}</select>
   <label class="check small filter-check"><input type="checkbox" name="nie" value="1" {{ 'checked' if flt.nie }}> nie angemeldet</label>

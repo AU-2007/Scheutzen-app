@@ -50,6 +50,34 @@ AVAIL = {"ja": "Zusage", "vielleicht": "Vielleicht", "nein": "Absage"}
 DISCIPLINES = ["Luftgewehr", "Luftgewehr Auflage", "Luftpistole", "Luftpistole Auflage", "Luftpistole Standard",
                "KK-Gewehr", "KK-Gewehr Auflage", "KK-Pistole", "Zimmerstutzen", "Zimmerstutzen Auflage",
                "Zimmerstutzen Standard", "Kyffhäuser", "Großkaliber", "Bogen"]
+# Kategorien für die Übersichten (Mannschaften gruppiert nach LG, LP, KK …)
+DISC_GROUPS = [("LG", "Luftgewehr", ("luftgewehr", "lg", "lga")), ("LP", "Luftpistole", ("luftpistole", "lp", "lpa", "lps")),
+               ("KK", "Kleinkaliber", ("kk", "kka", "kleinkaliber")), ("ZS", "Zimmerstutzen", ("zimmerstutzen", "zs", "zsa", "zstrd")),
+               ("KYF", "Kyffhäuser", ("kyff",)), ("GK", "Großkaliber", ("großkaliber", "grosskaliber", "gk")),
+               ("BO", "Bogen", ("bogen",))]
+
+
+def disc_group(discipline):
+    """'Luftgewehr Auflage' -> ('LG', 'Luftgewehr'); unbekannt -> ('', 'Sonstige')."""
+    d = (discipline or "").strip().lower()
+    for short, label, keys in DISC_GROUPS:
+        if any(d == k or d.startswith(k + " ") or d.startswith(k + "-") or (len(k) > 3 and d.startswith(k)) for k in keys):
+            return short, label
+    return "", "Sonstige"
+
+
+def group_by_discipline(items):
+    """Liste von Mannschaften -> [(Kürzel, Name, [Mannschaften]), …] in fester Reihenfolge LG, LP, KK …"""
+    order = {g[0]: i for i, g in enumerate(DISC_GROUPS)}
+    groups = {}
+    for t in items:
+        key = disc_group(t["discipline"])
+        groups.setdefault(key, []).append(t)
+    return [(k[0], k[1], v) for k, v in sorted(groups.items(), key=lambda kv: order.get(kv[0][0], 99))]
+
+
+
+
 # Kürzel der Waffenart im DISAG-FLEX-Import (Vorlage "SchuetzenMitVereinWaffenart")
 WAFFENART = {"Luftgewehr": "LG", "Luftgewehr Auflage": "LGA", "Luftpistole": "LP", "Luftpistole Auflage": "LPA",
              "Luftpistole Standard": "LPS", "KK-Gewehr": "KK", "KK-Gewehr Auflage": "KKA", "Zimmerstutzen": "ZS",
@@ -88,6 +116,8 @@ def load_secret_key():
 
 
 app = Flask(__name__)
+app.jinja_env.filters["nach_disziplin"] = lambda items: group_by_discipline(items)
+app.jinja_env.filters["kategorie"] = lambda d: disc_group(d)[0] or "–"
 STARTED_AT = datetime.now()
 LOG_KEEP_DAYS = 90          # Login- und Fehlerprotokoll so lange aufheben
 MAX_FAILED_LOGINS = 10      # pro IP in 10 Minuten
@@ -351,6 +381,8 @@ MIGRATIONS = [
     ("teams", "rank", "INTEGER"),                         # Rang im Verein (1 = höchste Klasse), leer = aus dem Namen
     ("teams", "max_starts", "INTEGER NOT NULL DEFAULT 10"),  # Einsätze pro Saison (RWK VII.4: 10, bei 7er-Gruppen 12)
     ("matches", "relegation", "INTEGER NOT NULL DEFAULT 0"),  # Auf-/Abstiegskampf (zählt nicht, RWK VII.4/6)
+    ("matches", "edited_at", "TEXT"),                     # nachträglich bearbeitet (nach dem Termin)
+    ("matches", "edited_by", "INTEGER"),
     ("users", "first_name", "TEXT NOT NULL DEFAULT ''"),   # Vorname für Begrüßung (leer = aus dem Namen)
     ("users", "cal_seen", "TEXT"),                         # letzter Abruf des Kalender-Abos
     ("users", "cal_client", "TEXT NOT NULL DEFAULT ''"),  # wer abgerufen hat (Google, Apple, Outlook …)                       # Stände für diesen Wettkampf, NULL = Vereinseinstellung
@@ -1127,8 +1159,16 @@ def index():
     u = current_user()
     if u["role"] == "admin":
         return admin_dashboard()
-    my_teams = q(f"""SELECT t.*, t.leader_id = :u is_leader FROM teams t
-                     WHERE t.id IN ({MY_TEAMS_SQL}) ORDER BY t.name""", {"u": u["id"]})
+    today_iso = date.today().isoformat()
+    my_teams = [dict(t) for t in q(f"""SELECT t.*, t.leader_id = :u is_leader, tm.reserve, tm.user_id IS NOT NULL is_member
+                     FROM teams t LEFT JOIN team_members tm ON tm.team_id=t.id AND tm.user_id=:u
+                     WHERE t.id IN ({MY_TEAMS_SQL}) ORDER BY t.name""", {"u": u["id"]})]
+    for t in my_teams:   # nächster Wettkampf und ob ich dafür aufgestellt bin
+        nm = q("""SELECT m.id, m.date, m.time, m.opponent, m.home,
+                  EXISTS(SELECT 1 FROM lineup l WHERE l.match_id=m.id AND l.user_id=?) lined
+                  FROM matches m WHERE m.team_id=? AND m.date>=? ORDER BY m.date, m.time LIMIT 1""",
+               (u["id"], t["id"], today_iso), one=True)
+        t["next"] = dict(nm) if nm else None
     my_results = q("""SELECT m.*, t.name team_name, l.rings FROM lineup l
                       JOIN matches m ON m.id=l.match_id JOIN teams t ON t.id=m.team_id
                       WHERE l.user_id=? AND l.rings IS NOT NULL ORDER BY m.date DESC LIMIT 5""", (u["id"],))
@@ -1594,7 +1634,7 @@ def users():
     return render_template("users.html", users=rows, show=show, counts=counts, flt=flt, filtered=filtered, clubs=clubs,
                            BULK=BULK_ACTIONS,
                            back=request.full_path.rstrip("?"),
-                           teams=q("SELECT id, name FROM teams ORDER BY name"), groups=q("SELECT id, name FROM groups ORDER BY name"))
+                           teams=q("SELECT id, name, discipline FROM teams ORDER BY name"), groups=q("SELECT id, name FROM groups ORDER BY name"))
 
 
 def temp_locked_names():
@@ -2422,6 +2462,34 @@ def team_remove_member(tid, uid):
 
 
 # ---------------------------------------------------------------- Wettkämpfe
+# ---------------------------------------------------------------- Abgelaufene Wettkämpfe nur mit Bestätigung ändern
+def match_has_results(m):
+    return m["opponent_score"] is not None or bool(q("SELECT 1 FROM lineup WHERE match_id=? AND rings IS NOT NULL", (m["id"],), one=True))
+
+
+def past_lock(m, what):
+    """Muss vor dem Ändern nachgefragt werden? Termin: sobald das Datum vorbei ist.
+    Aufstellung/Ergebnisse: wenn das Datum vorbei ist und schon Ergebnisse eingetragen sind
+    (das erste Eintragen der Ringe nach dem Wettkampf soll ohne Rückfrage gehen)."""
+    if not m or m["date"] >= date.today().isoformat():
+        return False
+    return what == "termin" or match_has_results(m)
+
+
+def past_confirm_missing(m, what):
+    """True, wenn der Wettkampf gesperrt ist und die Bestätigung fehlt (dann wurde nichts geändert)."""
+    if past_lock(m, what) and request.form.get("confirm_past") != "1":
+        flash("Der Wettkampf ist schon vorbei. Änderungen bitte bestätigen. Es wurde nichts geändert.", "error")
+        return True
+    return False
+
+
+def mark_edited(m, what):
+    if past_lock(m, what):
+        ex("UPDATE matches SET edited_at=?, edited_by=? WHERE id=?",
+           (datetime.now().isoformat(timespec="seconds"), current_user()["id"], m["id"]))
+
+
 @app.route("/mannschaft/<int:tid>/wettkampf/neu", methods=["GET", "POST"])
 @app.route("/wettkampf/<int:mid>/bearbeiten", methods=["GET", "POST"])
 @login_required
@@ -2430,6 +2498,8 @@ def match_edit(tid=None, mid=None):
     t = get_team(m["team_id"] if m else tid)
     if not can_manage(t):
         abort(403)
+    if request.method == "POST" and m and past_confirm_missing(m, "termin"):
+        return redirect(url_for("match_edit", mid=mid))
     if request.method == "POST":
         f = {k: request.form.get(k, "").strip() for k in ("time", "opponent", "location", "notes", "meet")}
         d = parse_date(request.form.get("date"))
@@ -2452,6 +2522,7 @@ def match_edit(tid=None, mid=None):
                 ex("""UPDATE matches SET date=?, time=?, opponent=?, home=?, location=?, opponent_score=?,
                       notes=?, meet=?, opp_team_id=?, relegation=? WHERE id=?""",
                    (d, f["time"], f["opponent"], home, f["location"], opp, f["notes"], f["meet"], opp_team_id, relegation, mid))
+                mark_edited(m, "termin")
             else:
                 mid = ex("""INSERT INTO matches (team_id, date, time, opponent, home, location, opponent_score, notes, meet,
                             opp_team_id, relegation) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
@@ -2460,7 +2531,7 @@ def match_edit(tid=None, mid=None):
             return redirect(url_for("match", mid=mid))
         m = dict(m or {}, **f, date=request.form.get("date"), home=home, opponent_score=opp, opp_team_id=opp_team_id,
                  relegation=relegation)
-    return render_template("match_edit.html", m=m, t=t, opponents=opponent_choices(),
+    return render_template("match_edit.html", m=m, t=t, opponents=opponent_choices(), lock_termin=past_lock(m, "termin"),
                            opp_rings=bool(mid and has_opp_rings(mid)))
 
 
@@ -2610,7 +2681,10 @@ def match(mid):
     plan = {"area": area, "lanes": match_lanes(m, area), "placed": placed,
             "count": sum(1 for r in rows if r["in_lineup"]) + len(opp_rows)}
     rwk = match_rwk_check(m, t, [r["id"] for r in rows]) if can_manage(t) else {}
+    edited = q("SELECT u.name FROM users u WHERE u.id=?", (m["edited_by"],), one=True) if m["edited_at"] else None
     return render_template("match.html", m=m, t=t, rows=rows, total=total, moves=moves, open_move=open_move, rwk=rwk,
+                           lock_termin=past_lock(m, "termin"), lock_result=past_lock(m, "ergebnis"),
+                           edited_name=edited["name"] if edited else "",
                            rwk_lined=[(r["name"], rwk[r["id"]]["problems"]) for r in rows if r["in_lineup"] and rwk.get(r["id"], {}).get("problems")],
                            opp_rows=opp_rows, opp_team=opp_team, opp_pool=opp_pool, plan=plan,
                            opp_sum=sum(r["rings"] for r in opp_rows if r["rings"] is not None),
@@ -2759,6 +2833,9 @@ def match_lineup(mid):
     t = get_team(m["team_id"])
     if not can_manage(t):
         abort(403)
+    if past_confirm_missing(m, "ergebnis"):
+        return redirect(url_for("match", mid=mid) + "#aufstellung")
+    mark_edited(m, "ergebnis")
     allowed = {r["user_id"] for r in q("SELECT user_id FROM team_members WHERE team_id=?", (t["id"],))}
     allowed |= {r["user_id"] for r in q("SELECT user_id FROM lineup WHERE match_id=?", (mid,))}
     chosen = {int(x) for x in request.form.getlist("lineup") if x.isdigit()} & allowed
@@ -2794,6 +2871,9 @@ def match_add_helper(mid):
     m = get_match(mid)
     if not can_manage(get_team(m["team_id"])):
         abort(403)
+    if past_confirm_missing(m, "ergebnis"):
+        return redirect(url_for("match", mid=mid) + "#aufstellung")
+    mark_edited(m, "ergebnis")
     uid = request.form.get("user_id", type=int)
     if uid and q("SELECT 1 FROM users WHERE id=? AND active=1", (uid,), one=True):
         ex("INSERT OR IGNORE INTO lineup (match_id, user_id) VALUES (?,?)", (mid, uid))
@@ -2808,6 +2888,9 @@ def match_opp_edit(mid):
     m = get_match(mid)
     if not can_manage(get_team(m["team_id"])):
         abort(403)
+    if past_confirm_missing(m, "ergebnis"):
+        return redirect(url_for("match", mid=mid) + "#aufstellung")
+    mark_edited(m, "ergebnis")
     act = "remove" if request.form.get("remove_id") else request.form.get("action")
     conn = db()
     nxt = (conn.execute("SELECT COALESCE(MAX(pos), 0) + 1 FROM match_opp WHERE match_id=?", (mid,)).fetchone()[0])

@@ -78,6 +78,15 @@
   {% block content %}{% endblock %}
 </main>
 <script>
+  // Abgelaufene Wettkämpfe: vor dem Speichern nachfragen (Formulare mit data-past)
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f.dataset || !f.dataset.past) return;
+    if (!confirm(f.dataset.past)) { e.preventDefault(); return; }
+    var h = f.querySelector('input[name=confirm_past]');
+    if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'confirm_past'; f.appendChild(h); }
+    h.value = '1';
+  }, true);
   document.addEventListener('click', function (e) {
     var m = document.querySelector('.usermenu[open]');
     if (m && !m.contains(e.target)) m.removeAttribute('open');

@@ -1,100 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ t.name }} – {{ m.opponent }}{% endblock %}
 {% block content %}
+{% set past = m.date < today %}
 <p><a href="{{ url_for('team', tid=t.id) }}" class="back">← {{ t.name }}</a></p>
-<div class="head-row">
-  <div>
-    <h1>{{ 'vs.' if m.home else '@' }} {{ m.opponent }}</h1>
-    <div class="muted">{{ m.date|datum }}{% if m.time %} · {{ m.time }} Uhr{% endif %} · {{ 'Heim' if m.home else 'Auswärts' }}{% if m.location %} · {{ m.location }}{% endif %}</div>
-  </div>
-  {% if manage %}<a class="btn" href="{{ url_for('match_edit', mid=m.id) }}">Termin bearbeiten</a>{% endif %}
-</div>
+<h1>{{ 'vs.' if m.home else '@' }} {{ m.opponent }}</h1>
+<div class="muted">{{ m.date|datum }}{% if m.time %} · {{ m.time }} Uhr{% endif %} · {{ 'Heim' if m.home else 'Auswärts' }}{% if m.location %} · {{ m.location }}{% endif %}{% if m.relegation %} · Auf-/Abstiegskampf{% endif %}</div>
+{% if m.edited_at %}<p class="edited-hint">✎ Nachträglich bearbeitet {{ m.edited_at|seit }}{% if edited_name %} von {{ edited_name }}{% endif %}</p>{% endif %}
 
-{# ---------- Beschreibung ---------- #}
-{% if manage %}
-<details class="card desc" {{ 'open' if not m.notes and not m.meet }}>
-  <summary>
-    <span class="desc-label">Beschreibung</span>
-    {% if m.notes %}<div class="note">{{ m.notes }}</div>{% else %}<div class="muted small">Noch keine Beschreibung. Tippe hier, um eine hinzuzufügen.</div>{% endif %}
-    {% if not m.home and m.meet %}<div class="meet">Treffpunkt: <b>{{ m.meet }}</b></div>{% endif %}
-    <span class="edit-hint small">Bearbeiten</span>
-  </summary>
-  <form method="post" action="{{ url_for('match_notes', mid=m.id) }}" class="stack desc-form">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Beschreibung<textarea name="notes" rows="4" placeholder="z. B. 30 Minuten vorher zum Einschießen da sein, Vereinsjacke mitbringen">{{ m.notes }}</textarea></label>
-    {% if not m.home %}<label>Treffpunkt &amp; Abfahrt<input name="meet" value="{{ m.meet }}" placeholder="z. B. Schützenhaus, 17:45 Uhr"></label>{% endif %}
-    <button class="btn primary">Speichern</button>
-  </form>
-</details>
-{% elif m.notes or (not m.home and m.meet) %}
-<div class="card desc">
-  {% if m.notes %}<div class="note">{{ m.notes }}</div>{% endif %}
-  {% if not m.home and m.meet %}<div class="meet">Treffpunkt: <b>{{ m.meet }}</b></div>{% endif %}
-</div>
-{% endif %}
-
-{# ---------- Verlegung ---------- #}
-{% if open_move %}
-<div class="move-banner" id="verlegung">
-  <b>Verlegung beantragt</b>
-  <span>{{ open_move.old_date|datum }}{% if open_move.old_time %}, {{ open_move.old_time }}{% endif %} → <b>{{ open_move.new_date|datum }}{% if open_move.new_time %}, {{ open_move.new_time }} Uhr{% endif %}</b></span>
-  {% if open_move.reason %}<span class="small">Grund: {{ open_move.reason }}</span>{% endif %}
-  <span class="small muted">Noch nicht bestätigt. Bis dahin gilt der bisherige Termin.</span>
-</div>
-{% endif %}
-{% if manage %}
-<section id="{{ 'verlegung-form' if open_move else 'verlegung' }}">
-  {% if open_move %}
-  <div class="card stack">
-    <b>Antrag an Gegner und Rundenwettkampfleiter</b>
-    <pre class="report" id="move-text">{{ move_text }}</pre>
-    <div class="inline wrap">
-      <button type="button" class="btn small-btn" id="copy-move">Text kopieren</button>
-      <a class="btn small-btn" href="{{ t.rwk_url or RWK_HOME }}" target="_blank" rel="noopener">RWK-Onlinemelder ↗</a>
-    </div>
-    <p class="muted small" style="margin:0">Schick den Text per Mail oder Messenger an den Gegner und den Rundenwettkampfleiter. Sobald alle zugestimmt haben, hier bestätigen.</p>
-    <form method="post" action="{{ url_for('match_move', mid=m.id) }}" class="inline wrap">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="btn primary" name="action" value="bestaetigt">Bestätigt, Termin ändern</button>
-      <button class="btn" name="action" value="abgelehnt">Abgelehnt</button>
-      <button class="btn" name="action" value="zurueckgezogen">Zurückziehen</button>
-    </form>
-  </div>
-  <script>
-    document.getElementById('copy-move').addEventListener('click', function () {
-      var el = document.getElementById('move-text'), b = this;
-      (navigator.clipboard ? navigator.clipboard.writeText(el.textContent) : Promise.reject()).then(function () { b.textContent = 'Kopiert'; })
-        .catch(function () { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
-    });
-  </script>
-  {% elif m.date >= today %}
-  <details class="card">
-    <summary class="strong" style="cursor:pointer">Termin verlegen</summary>
-    <form method="post" action="{{ url_for('match_move', mid=m.id) }}" class="stack" style="margin-top:12px">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="action" value="antrag">
-      <div class="row2">
-        <label>Neues Datum<input type="date" name="new_date" required></label>
-        <label>Uhrzeit<input type="time" name="new_time" value="{{ m.time }}"></label>
-      </div>
-      <label>Grund<input name="reason" placeholder="z. B. Schützenfest, zu wenige Schützen verfügbar"></label>
-      <button class="btn primary">Verlegung beantragen</button>
-      <p class="muted small" style="margin:0">Der Termin ändert sich erst, wenn du die Zustimmung bestätigst. Danach sagen alle neu zu oder ab.</p>
-    </form>
-  </details>
-  {% endif %}
-</section>
-{% endif %}
-{% if moves and (moves|length > 1 or not open_move) %}
-<details class="move-history">
-  <summary class="small muted">Verlauf der Verlegungen ({{ moves|length }})</summary>
-  <ul class="small">
-    {% for mv in moves %}<li>{{ mv.old_date|datum }} → {{ mv.new_date|datum }}{% if mv.new_time %} {{ mv.new_time }}{% endif %} · <b>{{ {'offen':'beantragt','bestaetigt':'bestätigt','abgelehnt':'abgelehnt','zurueckgezogen':'zurückgezogen'}[mv.status] }}</b>{% if mv.by_name %} · {{ mv.by_name }}{% endif %}{% if mv.reason %} · {{ mv.reason }}{% endif %}</li>{% endfor %}
-  </ul>
-</details>
-{% endif %}
-
-{% if total is not none %}
+{% set s_score %}{% if total is not none %}
 <div class="score card {{ outcome or '' }}">
   <div><span class="muted small">{{ t.name }}</span><b>{{ total|ringe }}</b></div>
   <div class="vs">:</div>
@@ -103,7 +16,8 @@
 </div>
 {% endif %}
 
-{% if member %}
+{% endset %}
+{% set s_answer %}{% if not past %}{% if member %}
 <section>
   <h2>Deine Rückmeldung</h2>
   <form method="post" action="{{ url_for('match_availability', mid=m.id) }}" class="avail big">
@@ -119,7 +33,238 @@
 </section>
 {% endif %}
 
-{# ---------- Fahrgemeinschaft (nur auswärts) ---------- #}
+{% endif %}{% endset %}
+{% set s_info %}{% if manage %}
+<details class="card desc" id="info">
+  <summary>
+    {% if m.notes or (not m.home and m.meet) %}
+    {% if m.notes %}<div class="note">{{ m.notes }}</div>{% endif %}
+    {% if not m.home and m.meet %}<div class="meet">Treffpunkt: <b>{{ m.meet }}</b></div>{% endif %}
+    <span class="edit-hint small">Bearbeiten</span>
+    {% else %}<span class="muted small">+ Beschreibung{{ ' oder Treffpunkt' if not m.home }} hinzufügen</span>{% endif %}
+  </summary>
+  <form method="post" action="{{ url_for('match_notes', mid=m.id) }}" class="stack desc-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Beschreibung<textarea name="notes" rows="3" placeholder="z. B. 30 Minuten vorher zum Einschießen da sein, Vereinsjacke mitbringen">{{ m.notes }}</textarea></label>
+    {% if not m.home %}<label>Treffpunkt &amp; Abfahrt<input name="meet" value="{{ m.meet }}" placeholder="z. B. Schützenhaus, 17:45 Uhr"></label>{% endif %}
+    <button class="btn primary">Speichern</button>
+  </form>
+</details>
+{% elif m.notes or (not m.home and m.meet) %}
+<div class="card desc">
+  {% if m.notes %}<div class="note">{{ m.notes }}</div>{% endif %}
+  {% if not m.home and m.meet %}<div class="meet">Treffpunkt: <b>{{ m.meet }}</b></div>{% endif %}
+</div>
+{% endif %}
+{% endset %}
+{% set s_lineup %}{# ---------- Aufstellung ---------- #}
+<section id="aufstellung">
+  <div class="head-row">
+    <h2>{{ 'Aufstellung & Ergebnisse' if manage else 'Schützen' }}</h2>
+    <div class="small muted">✔ {{ counts.ja }} · ? {{ counts.vielleicht }} · ✘ {{ counts.nein }}</div>
+  </div>
+  {% macro tag(r) %}{% if r.guest %} <span class="pill sub">Aushilfe</span>{% elif r.reserve %} <span class="pill sub">Ersatz</span>{% endif %}{% endmacro %}
+  {% if manage and rwk_lined %}
+  <div class="flash error"><b>RWK-Ordnung VII:</b> {% for n, p in rwk_lined %}{{ n }}: {{ p|join(', ') }}{{ '; ' if not loop.last }}{% endfor %}. Bei einem Verstoß wird das Ergebnis dieses Schützen gestrichen.</div>
+  {% endif %}
+  {% if manage and m.relegation %}<p class="small muted">Auf-/Abstiegskampf: zählt nicht zu den Einsätzen (RWK VII.4/6).</p>{% endif %}
+  {% if manage %}
+  <form method="post" action="{{ url_for('match_lineup', mid=m.id) }}" {% if lock_result %}data-past="Der Wettkampf ist schon vorbei und hat Ergebnisse. Wirklich nachträglich ändern?"{% endif %}>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% set lined_rows = rows|selectattr('in_lineup')|list %}
+    {% set other_rows = rows|rejectattr('in_lineup')|list %}
+    {% macro lrow(r) %}
+          <tr>
+            <td><input type="checkbox" name="lineup" value="{{ r.id }}" {{ 'checked' if r.in_lineup }} aria-label="{{ r.name }} aufstellen"></td>
+            <td>{{ r.name }}{{ tag(r) }}{% set ri = rwk.get(r.id) %}
+              {% if ri %}<div class="rwk-info small">{% if ri.problems %}{% for p in ri.problems %}<span class="bad-text">⚠ {{ p }}</span>{% endfor %}{% else %}<span class="muted">{{ ri.starts }}/{{ ri.limit }} Einsätze</span>{% endif %}</div>{% endif %}</td>
+            <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
+            <td class="num"><input class="rings" name="rings_{{ r.id }}" inputmode="decimal" value="{{ r.rings|ringe if r.rings is not none }}" placeholder="–"></td>
+          </tr>
+    {% endmacro %}
+    {% if not rows %}
+    <div class="card"><p class="muted" style="margin:0">Die Mannschaft hat noch keine Schützen.</p></div>
+    {% elif lined_rows %}
+    <div class="card flush">
+      <table class="lineup">
+        <thead><tr><th>Auf&shy;gestellt</th><th>Schütze</th><th>Rückm.</th><th class="num">Ringe</th></tr></thead>
+        <tbody>{% for r in lined_rows %}{{ lrow(r) }}{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if other_rows %}
+    <details class="card fold flush-fold" id="weitere">
+      <summary><b>Weitere Schützen der Mannschaft</b><span class="muted small">{{ other_rows|length }} nicht aufgestellt{% set zu = other_rows|selectattr('status', 'equalto', 'ja')|list|length %}{% if zu %} · {{ zu }} mit Zusage{% endif %}</span></summary>
+      <table class="lineup">
+        <tbody>{% for r in other_rows %}{{ lrow(r) }}{% endfor %}</tbody>
+      </table>
+    </details>
+    {% endif %}
+    {% else %}
+    <p class="small muted" style="margin:0 0 6px">Noch niemand aufgestellt – Haken setzen und speichern. Danach stehen hier nur noch die Aufgestellten.</p>
+    <div class="card flush">
+      <table class="lineup">
+        <thead><tr><th>Auf&shy;gestellt</th><th>Schütze</th><th>Rückm.</th><th class="num">Ringe</th></tr></thead>
+        <tbody>{% for r in rows %}{{ lrow(r) }}{% endfor %}</tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% if opp_rows %}
+    <h3 class="opp-head" id="gegner">Gegner: {{ m.opponent }}</h3>
+    <div class="card flush">
+      <table class="lineup">
+        <thead><tr><th>Schütze</th><th class="num">Ringe</th><th></th></tr></thead>
+        <tbody>
+        {% for o in opp_rows %}
+          <tr>
+            <td>{{ o.name }}{% if o.pass_nr %} <span class="muted small">{{ o.pass_nr }}</span>{% endif %}</td>
+            <td class="num"><input class="rings" name="opp_rings_{{ o.id }}" inputmode="decimal" value="{{ o.rings|ringe if o.rings is not none }}" placeholder="–" aria-label="Ringe {{ o.name }}"></td>
+            <td class="num"><button class="linkbtn small" formaction="{{ url_for('match_opp_edit', mid=m.id) }}" name="remove_id" value="{{ o.id }}" formnovalidate aria-label="{{ o.name }} entfernen">Entfernen</button></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+        {% if opp_has_rings %}<tfoot><tr><td class="muted small">Summe Gegner</td><td class="num strong">{{ opp_sum|ringe }}</td><td></td></tr></tfoot>{% endif %}
+      </table>
+    </div>
+    <div class="row2 end"><span></span><button class="btn primary">Speichern</button></div>
+    {% else %}
+    <div class="row2 end">
+      <label>Ringe Gegner (Summe)<input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m.opponent_score is not none }}"></label>
+      <button class="btn primary">Speichern</button>
+    </div>
+    {% endif %}
+    <p class="muted small">Haken setzen = aufgestellt. Ringe nur bei aufgestellten Schützen. Zehntel mit Komma, z. B. 389,4.{% if opp_rows %} Die Summe des Gegners rechnet die App aus den einzelnen Ringen.{% endif %}</p>
+  </form>
+
+  <details class="card fold" id="mehr-schuetzen" {{ 'open' if not opp_rows and not past }}>
+    <summary><b>Gegnerschützen &amp; Ersatz</b><span class="muted small">{{ opp_rows|length }} Gegnerschütze{{ 'n' if opp_rows|length != 1 }} eingetragen</span></summary>
+    <div class="stack" style="margin-top:12px">
+  <div class="stack opp-add" {% if not opp_rows %}id="gegner"{% endif %}>
+    <b>Gegnerschützen</b>
+    {% if opp_team %}
+    {% if opp_pool %}
+    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" class="inline-form" {% if lock_result %}data-past="Der Wettkampf ist schon vorbei und hat Ergebnisse. Wirklich nachträglich ändern?"{% endif %}>
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
+      <select name="shooter_id" required aria-label="Schütze von {{ opp_team.club_name }}">
+        <option value="">Schütze von {{ opp_team.club_name }} …</option>
+        {% for x in opp_pool %}<option value="{{ x.id }}">{{ x.name }}{% if x.team_name and x.team_id != opp_team.id %} (Mannschaft {{ x.team_name }}){% endif %}</option>{% endfor %}
+      </select>
+      <button class="btn">Hinzufügen</button>
+    </form>
+    {% if opp_pool|selectattr('team_id', 'equalto', opp_team.id)|list %}
+    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" {% if lock_result %}data-past="Der Wettkampf ist schon vorbei und hat Ergebnisse. Wirklich nachträglich ändern?"{% endif %}>
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="team">
+      <button class="btn small-btn">Alle Stammschützen von {{ opp_team.club_name }} {{ opp_team.name }} übernehmen</button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" class="stack" {% if lock_result %}data-past="Der Wettkampf ist schon vorbei und hat Ergebnisse. Wirklich nachträglich ändern?"{% endif %}>
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
+      <div class="row2">
+        <label>{{ 'Oder neuer Schütze' if opp_team and opp_pool else 'Name' }}<input name="name" placeholder="Vor- und Nachname" required></label>
+        <label>Pass-Nr. <span class="muted small">(optional)</span><input name="pass_nr"></label>
+      </div>
+      {% if opp_team %}<label class="check"><input type="checkbox" name="save" value="1" checked> In die Schützenliste von {{ opp_team.club_name }} aufnehmen</label>{% endif %}
+      <button class="btn">Hinzufügen</button>
+    </form>
+    {% if not opp_team %}<p class="muted small" style="margin:0">Tipp: Wählst du beim <a href="{{ url_for('match_edit', mid=m.id) }}">Termin</a> den Gegner aus der Gegnerliste, stehen dessen Schützen hier zur Auswahl.</p>{% endif %}
+  </div>
+  {% if helpers %}
+  <div class="stack"><b>Ersatz aus anderer Mannschaft</b>
+  <form method="post" action="{{ url_for('match_add_helper', mid=m.id) }}" class="inline-form" {% if lock_result %}data-past="Der Wettkampf ist schon vorbei und hat Ergebnisse. Wirklich nachträglich ändern?"{% endif %}>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="user_id" required aria-label="Ersatz aus anderer Mannschaft">
+      <option value="">Ersatz aus anderer Mannschaft …</option>
+      {% for h in helpers %}<option value="{{ h.id }}">{{ h.name }}</option>{% endfor %}
+    </select>
+    <button class="btn">Aufstellen</button>
+  </form></div>
+  {% endif %}
+    </div>
+  </details>
+  {% else %}
+  {% set lined_rows = rows|selectattr('in_lineup')|list %}
+  {% macro rrow(r) %}
+        <tr class="{{ 'lined' if r.in_lineup }}">
+          <td>{{ r.name }}{{ tag(r) }}{% if r.in_lineup and r.id == me.id %} <span class="pill gold">du</span>{% endif %}</td>
+          <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
+          <td class="num strong">{{ r.rings|ringe if r.in_lineup else '' }}</td>
+        </tr>
+  {% endmacro %}
+  {% if lined_rows %}
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Aufgestellt</th><th>Rückmeldung</th><th class="num">Ringe</th></tr></thead>
+      <tbody>{% for r in lined_rows %}{{ rrow(r) }}{% endfor %}</tbody>
+    </table>
+  </div>
+  {% set other_rows = rows|rejectattr('in_lineup')|list %}
+  {% if other_rows and not past %}
+  <details class="card fold flush-fold">
+    <summary><b>Weitere Schützen</b><span class="muted small">{{ other_rows|length }} nicht aufgestellt</span></summary>
+    <table><tbody>{% for r in other_rows %}{{ rrow(r) }}{% endfor %}</tbody></table>
+  </details>
+  {% endif %}
+  {% else %}
+  {% if not past %}<p class="small muted" style="margin:0 0 6px">Noch keine Aufstellung. Bisherige Rückmeldungen:</p>{% endif %}
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Schütze</th><th>Rückmeldung</th><th class="num"></th></tr></thead>
+      <tbody>{% for r in rows %}{{ rrow(r) }}{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% if opp_rows %}
+  <h3 class="opp-head">Gegner: {{ m.opponent }}</h3>
+  <div class="card flush">
+    <table>
+      <tbody>
+      {% for o in opp_rows %}<tr><td>{{ o.name }}</td><td class="num strong">{{ o.rings|ringe if o.rings is not none else '' }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+{% endset %}
+{% set s_report %}{# ---------- Ergebnis für den RWK-Onlinemelder ---------- #}
+{% if manage and total is not none %}
+{% set lined = rows|selectattr('in_lineup')|list %}
+{% set report %}{{ t.name }} {{ 'vs.' if m.home else '@' }} {{ m.opponent }} ({{ m.date|datum }})
+{% for r in lined %}{{ r.name }}: {{ r.rings|ringe }}
+{% endfor %}{% if opp_has_rings %}{{ m.opponent }}:
+{% for o in opp_rows if o.rings is not none %}{{ o.name }}: {{ o.rings|ringe }}
+{% endfor %}{% endif %}Gesamt: {{ total|ringe }}{% if m.opponent_score is not none %} : {{ m.opponent_score|ringe }}{% endif %}{% endset %}
+<section>
+  <div class="card rwk-report stack">
+    <div class="head-row"><b><span class="rwk-logo" aria-hidden="true">RWK</span> Ergebnis melden</b>
+      <a class="btn small-btn" href="{{ t.rwk_url or RWK_HOME }}" target="_blank" rel="noopener">Im RWK-Onlinemelder melden ↗</a></div>
+    <pre class="report" id="report">{{ report }}</pre>
+    <div class="inline"><button type="button" class="btn small-btn" id="copy-report">Ergebnis kopieren</button><span class="muted small" id="copy-ok" hidden>Kopiert</span></div>
+    <p class="muted small" style="margin:0">Der RWK-Onlinemelder hat keine Schnittstelle. Die Meldung trägst du dort selbst ein. Hier hast du alle Zahlen beisammen.</p>
+  </div>
+</section>
+<script>
+  document.getElementById('copy-report').addEventListener('click', function () {
+    var txt = document.getElementById('report').textContent, ok = document.getElementById('copy-ok');
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { ok.hidden = false; })
+      .catch(function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('report')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
+  });
+</script>
+{% endif %}
+
+{% endset %}
+{% set s_plan %}{# ---------- Standplan ---------- #}
+{% if plan.count or manage %}
+<a class="card plan-teaser" href="{{ url_for('standplan', mid=m.id) }}">
+  <span class="plan-ico" aria-hidden="true">{{ plan.area }}</span>
+  <span><b>Standplan</b><br><span class="small muted">{{ plan.lanes }} Stände {{ plan.area }} · {% if plan.count %}{{ plan.placed }} von {{ plan.count }} Schützen eingeteilt{% else %}noch niemand aufgestellt{% endif %}</span></span>
+  <span class="plan-go" aria-hidden="true">›</span>
+</a>
+{% endif %}
+
+{% endset %}
+{% set s_ride %}{% if not past %}{# ---------- Fahrgemeinschaft (nur auswärts) ---------- #}
 {% if pool %}
 <section id="fahrt">
   <div class="head-row">
@@ -182,178 +327,85 @@
 </section>
 {% endif %}
 
-{# ---------- Ergebnis für den RWK-Onlinemelder ---------- #}
-{% if manage and total is not none %}
-{% set lined = rows|selectattr('in_lineup')|list %}
-{% set report %}{{ t.name }} {{ 'vs.' if m.home else '@' }} {{ m.opponent }} ({{ m.date|datum }})
-{% for r in lined %}{{ r.name }}: {{ r.rings|ringe }}
-{% endfor %}{% if opp_has_rings %}{{ m.opponent }}:
-{% for o in opp_rows if o.rings is not none %}{{ o.name }}: {{ o.rings|ringe }}
-{% endfor %}{% endif %}Gesamt: {{ total|ringe }}{% if m.opponent_score is not none %} : {{ m.opponent_score|ringe }}{% endif %}{% endset %}
-<section>
-  <div class="card rwk-report stack">
-    <div class="head-row"><b><span class="rwk-logo" aria-hidden="true">RWK</span> Ergebnis melden</b>
-      <a class="btn small-btn" href="{{ t.rwk_url or RWK_HOME }}" target="_blank" rel="noopener">Im RWK-Onlinemelder melden ↗</a></div>
-    <pre class="report" id="report">{{ report }}</pre>
-    <div class="inline"><button type="button" class="btn small-btn" id="copy-report">Ergebnis kopieren</button><span class="muted small" id="copy-ok" hidden>Kopiert</span></div>
-    <p class="muted small" style="margin:0">Der RWK-Onlinemelder hat keine Schnittstelle. Die Meldung trägst du dort selbst ein. Hier hast du alle Zahlen beisammen.</p>
-  </div>
-</section>
-<script>
-  document.getElementById('copy-report').addEventListener('click', function () {
-    var txt = document.getElementById('report').textContent, ok = document.getElementById('copy-ok');
-    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { ok.hidden = false; })
-      .catch(function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('report')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
-  });
-</script>
-{% endif %}
-
-{# ---------- Standplan ---------- #}
-{% if plan.count or manage %}
-<a class="card plan-teaser" href="{{ url_for('standplan', mid=m.id) }}">
-  <span class="plan-ico" aria-hidden="true">{{ plan.area }}</span>
-  <span><b>Standplan</b><br><span class="small muted">{{ plan.lanes }} Stände {{ plan.area }} · {% if plan.count %}{{ plan.placed }} von {{ plan.count }} Schützen eingeteilt{% else %}noch niemand aufgestellt{% endif %}</span></span>
-  <span class="plan-go" aria-hidden="true">›</span>
-</a>
-{% endif %}
-
-{# ---------- Aufstellung ---------- #}
-<section>
-  <div class="head-row">
-    <h2>{{ 'Aufstellung & Ergebnisse' if manage else 'Schützen' }}</h2>
-    <div class="small muted">✔ {{ counts.ja }} · ? {{ counts.vielleicht }} · ✘ {{ counts.nein }}</div>
-  </div>
-  {% macro tag(r) %}{% if r.guest %} <span class="pill sub">Aushilfe</span>{% elif r.reserve %} <span class="pill sub">Ersatz</span>{% endif %}{% endmacro %}
-  {% if manage and rwk_lined %}
-  <div class="flash error"><b>RWK-Ordnung VII:</b> {% for n, p in rwk_lined %}{{ n }}: {{ p|join(', ') }}{{ '; ' if not loop.last }}{% endfor %}. Bei einem Verstoß wird das Ergebnis dieses Schützen gestrichen.</div>
-  {% endif %}
-  {% if manage and m.relegation %}<p class="small muted">Auf-/Abstiegskampf: zählt nicht zu den Einsätzen (RWK VII.4/6).</p>{% endif %}
-  {% if manage %}
-  <form method="post" action="{{ url_for('match_lineup', mid=m.id) }}">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="card flush">
-      <table class="lineup">
-        <thead><tr><th>Auf&shy;gestellt</th><th>Schütze</th><th>Rückm.</th><th class="num">Ringe</th></tr></thead>
-        <tbody>
-        {% for r in rows %}
-          <tr>
-            <td><input type="checkbox" name="lineup" value="{{ r.id }}" {{ 'checked' if r.in_lineup }} aria-label="{{ r.name }} aufstellen"></td>
-            <td>{{ r.name }}{{ tag(r) }}{% set ri = rwk.get(r.id) %}
-              {% if ri %}<div class="rwk-info small">{% if ri.problems %}{% for p in ri.problems %}<span class="bad-text">⚠ {{ p }}</span>{% endfor %}{% else %}<span class="muted">{{ ri.starts }}/{{ ri.limit }} Einsätze</span>{% endif %}</div>{% endif %}</td>
-            <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
-            <td class="num"><input class="rings" name="rings_{{ r.id }}" inputmode="decimal" value="{{ r.rings|ringe if r.rings is not none }}" placeholder="–"></td>
-          </tr>
-        {% else %}
-          <tr><td colspan="4" class="muted">Die Mannschaft hat noch keine Schützen.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
+{% endif %}{% endset %}
+{% set s_manage %}{% if manage %}
+{% if open_move %}<section id="verlegung-form">
+  <div class="card stack">
+    <b>Antrag an Gegner und Rundenwettkampfleiter</b>
+    <pre class="report" id="move-text">{{ move_text }}</pre>
+    <div class="inline wrap">
+      <button type="button" class="btn small-btn" id="copy-move">Text kopieren</button>
+      <a class="btn small-btn" href="{{ t.rwk_url or RWK_HOME }}" target="_blank" rel="noopener">RWK-Onlinemelder ↗</a>
     </div>
-    {% if opp_rows %}
-    <h3 class="opp-head" id="gegner">Gegner: {{ m.opponent }}</h3>
-    <div class="card flush">
-      <table class="lineup">
-        <thead><tr><th>Schütze</th><th class="num">Ringe</th><th></th></tr></thead>
-        <tbody>
-        {% for o in opp_rows %}
-          <tr>
-            <td>{{ o.name }}{% if o.pass_nr %} <span class="muted small">{{ o.pass_nr }}</span>{% endif %}</td>
-            <td class="num"><input class="rings" name="opp_rings_{{ o.id }}" inputmode="decimal" value="{{ o.rings|ringe if o.rings is not none }}" placeholder="–" aria-label="Ringe {{ o.name }}"></td>
-            <td class="num"><button class="linkbtn small" formaction="{{ url_for('match_opp_edit', mid=m.id) }}" name="remove_id" value="{{ o.id }}" formnovalidate aria-label="{{ o.name }} entfernen">Entfernen</button></td>
-          </tr>
-        {% endfor %}
-        </tbody>
-        {% if opp_has_rings %}<tfoot><tr><td class="muted small">Summe Gegner</td><td class="num strong">{{ opp_sum|ringe }}</td><td></td></tr></tfoot>{% endif %}
-      </table>
-    </div>
-    <div class="row2 end"><span></span><button class="btn primary">Speichern</button></div>
-    {% else %}
-    <div class="row2 end">
-      <label>Ringe Gegner (Summe)<input name="opponent_score" inputmode="decimal" value="{{ m.opponent_score|ringe if m.opponent_score is not none }}"></label>
-      <button class="btn primary">Speichern</button>
-    </div>
-    {% endif %}
-    <p class="muted small">Haken setzen = aufgestellt. Ringe nur bei aufgestellten Schützen. Zehntel mit Komma, z. B. 389,4.{% if opp_rows %} Die Summe des Gegners rechnet die App aus den einzelnen Ringen.{% endif %}</p>
-  </form>
-
-  <div class="card stack opp-add" {% if not opp_rows %}id="gegner"{% endif %}>
-    <b>Gegnerschützen eintragen</b>
-    {% if opp_team %}
-    {% if opp_pool %}
-    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" class="inline-form">
-      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
-      <select name="shooter_id" required aria-label="Schütze von {{ opp_team.club_name }}">
-        <option value="">Schütze von {{ opp_team.club_name }} …</option>
-        {% for x in opp_pool %}<option value="{{ x.id }}">{{ x.name }}{% if x.team_name and x.team_id != opp_team.id %} (Mannschaft {{ x.team_name }}){% endif %}</option>{% endfor %}
-      </select>
-      <button class="btn">Hinzufügen</button>
+    <p class="muted small" style="margin:0">Schick den Text per Mail oder Messenger an den Gegner und den Rundenwettkampfleiter. Sobald alle zugestimmt haben, hier bestätigen.</p>
+    <form method="post" action="{{ url_for('match_move', mid=m.id) }}" class="inline wrap">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn primary" name="action" value="bestaetigt">Bestätigt, Termin ändern</button>
+      <button class="btn" name="action" value="abgelehnt">Abgelehnt</button>
+      <button class="btn" name="action" value="zurueckgezogen">Zurückziehen</button>
     </form>
-    {% if opp_pool|selectattr('team_id', 'equalto', opp_team.id)|list %}
-    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}">
-      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="team">
-      <button class="btn small-btn">Alle Stammschützen von {{ opp_team.club_name }} {{ opp_team.name }} übernehmen</button>
-    </form>
-    {% endif %}
-    {% endif %}
-    {% endif %}
-    <form method="post" action="{{ url_for('match_opp_edit', mid=m.id) }}" class="stack">
-      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
+  </div>
+  <script>
+    document.getElementById('copy-move').addEventListener('click', function () {
+      var el = document.getElementById('move-text'), b = this;
+      (navigator.clipboard ? navigator.clipboard.writeText(el.textContent) : Promise.reject()).then(function () { b.textContent = 'Kopiert'; })
+        .catch(function () { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); });
+    });
+  </script>
+</section>{% endif %}
+<details class="card fold" id="verwalten">
+  <summary><b>Wettkampf verwalten</b><span class="muted small">Termin bearbeiten{{ ', verlegen' if not past and not open_move }}{{ ', Verlauf' if moves }}</span></summary>
+  <div class="stack" style="margin-top:12px">
+    <div class="inline wrap">
+      <a class="btn" href="{{ url_for('match_edit', mid=m.id) }}">Termin bearbeiten</a>
+      {% if lock_termin %}<span class="muted small">Schon vorbei: Änderungen werden gekennzeichnet.</span>{% endif %}
+    </div>
+    {% if not past and not open_move %}
+    <div id="verlegung"><b>Termin verlegen</b>    <form method="post" action="{{ url_for('match_move', mid=m.id) }}" class="stack" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="antrag">
       <div class="row2">
-        <label>{{ 'Oder neuer Schütze' if opp_team and opp_pool else 'Name' }}<input name="name" placeholder="Vor- und Nachname" required></label>
-        <label>Pass-Nr. <span class="muted small">(optional)</span><input name="pass_nr"></label>
+        <label>Neues Datum<input type="date" name="new_date" required></label>
+        <label>Uhrzeit<input type="time" name="new_time" value="{{ m.time }}"></label>
       </div>
-      {% if opp_team %}<label class="check"><input type="checkbox" name="save" value="1" checked> In die Schützenliste von {{ opp_team.club_name }} aufnehmen</label>{% endif %}
-      <button class="btn">Hinzufügen</button>
-    </form>
-    {% if not opp_team %}<p class="muted small" style="margin:0">Tipp: Wählst du beim <a href="{{ url_for('match_edit', mid=m.id) }}">Termin</a> den Gegner aus der Gegnerliste, stehen dessen Schützen hier zur Auswahl.</p>{% endif %}
+      <label>Grund<input name="reason" placeholder="z. B. Schützenfest, zu wenige Schützen verfügbar"></label>
+      <button class="btn primary">Verlegung beantragen</button>
+      <p class="muted small" style="margin:0">Der Termin ändert sich erst, wenn du die Zustimmung bestätigst. Danach sagen alle neu zu oder ab.</p>
+    </form></div>
+    {% endif %}
+    {% if moves and (moves|length > 1 or not open_move) %}
+<details class="move-history" open>
+  <summary class="small muted">Verlauf der Verlegungen ({{ moves|length }})</summary>
+  <ul class="small">
+    {% for mv in moves %}<li>{{ mv.old_date|datum }} → {{ mv.new_date|datum }}{% if mv.new_time %} {{ mv.new_time }}{% endif %} · <b>{{ {'offen':'beantragt','bestaetigt':'bestätigt','abgelehnt':'abgelehnt','zurueckgezogen':'zurückgezogen'}[mv.status] }}</b>{% if mv.by_name %} · {{ mv.by_name }}{% endif %}{% if mv.reason %} · {{ mv.reason }}{% endif %}</li>{% endfor %}
+  </ul>
+</details>
+{% endif %}
+
   </div>
-  {% if helpers %}
-  <form method="post" action="{{ url_for('match_add_helper', mid=m.id) }}" class="inline-form">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <select name="user_id" required aria-label="Ersatz aus anderer Mannschaft">
-      <option value="">Ersatz aus anderer Mannschaft …</option>
-      {% for h in helpers %}<option value="{{ h.id }}">{{ h.name }}</option>{% endfor %}
-    </select>
-    <button class="btn">Aufstellen</button>
-  </form>
-  {% endif %}
-  {% else %}
-  <div class="card flush">
-    <table>
-      <thead><tr><th>Schütze</th><th>Rückmeldung</th><th class="num">Ringe</th></tr></thead>
-      <tbody>
-      {% for r in rows %}
-        <tr class="{{ 'lined' if r.in_lineup }}">
-          <td>{{ r.name }}{{ tag(r) }}{% if r.in_lineup %} <span class="pill gold">aufgestellt</span>{% endif %}</td>
-          <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
-          <td class="num strong">{{ r.rings|ringe if r.in_lineup else '' }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% if opp_rows %}
-  <h3 class="opp-head">Gegner: {{ m.opponent }}</h3>
-  <div class="card flush">
-    <table>
-      <tbody>
-      {% for o in opp_rows %}<tr><td>{{ o.name }}</td><td class="num strong">{{ o.rings|ringe if o.rings is not none else '' }}</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-  {% endif %}
-</section>
-<script>
-  // Zusatzfelder der Fahrgemeinschaft passend zur Auswahl zeigen
-  (function () {
-    var form = document.querySelector('.ride-form');
-    if (!form) return;
-    function sync() {
-      var sel = form.querySelector('input[name=mode]:checked');
-      form.querySelectorAll('.ride-extra').forEach(function (el) { el.hidden = !sel || el.dataset.for !== sel.value; });
-    }
-    form.addEventListener('change', sync); sync();
-  })();
-</script>
+</details>
+{% elif moves and (moves|length > 1 or not open_move) %}
+<details class="move-history">
+  <summary class="small muted">Verlauf der Verlegungen ({{ moves|length }})</summary>
+  <ul class="small">
+    {% for mv in moves %}<li>{{ mv.old_date|datum }} → {{ mv.new_date|datum }}{% if mv.new_time %} {{ mv.new_time }}{% endif %} · <b>{{ {'offen':'beantragt','bestaetigt':'bestätigt','abgelehnt':'abgelehnt','zurueckgezogen':'zurückgezogen'}[mv.status] }}</b>{% if mv.by_name %} · {{ mv.by_name }}{% endif %}{% if mv.reason %} · {{ mv.reason }}{% endif %}</li>{% endfor %}
+  </ul>
+</details>
+{% endif %}
+{% endset %}
+
+{% if open_move %}
+<div class="move-banner" id="verlegung">
+  <b>Verlegung beantragt</b>
+  <span>{{ open_move.old_date|datum }}{% if open_move.old_time %}, {{ open_move.old_time }}{% endif %} → <b>{{ open_move.new_date|datum }}{% if open_move.new_time %}, {{ open_move.new_time }} Uhr{% endif %}</b></span>
+  {% if open_move.reason %}<span class="small">Grund: {{ open_move.reason }}</span>{% endif %}
+  <span class="small muted">Noch nicht bestätigt. Bis dahin gilt der bisherige Termin.</span>
+</div>
+{% endif %}
+
+{% if past %}
+{{ s_score }}{{ s_lineup }}{{ s_report }}{{ s_info }}{{ s_plan }}{{ s_manage }}
+{% else %}
+{{ s_score }}{{ s_info }}{{ s_answer }}{{ s_lineup }}{{ s_report }}{{ s_plan }}{{ s_ride }}{{ s_manage }}
+{% endif %}
 {% endblock %}

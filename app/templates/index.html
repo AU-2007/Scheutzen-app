@@ -26,14 +26,28 @@
   </a>
 </section>
 
-<section>
+<section id="meine-mannschaften">
   <h2>Meine Mannschaften</h2>
   {% if my_teams %}
-  <div class="team-chips">
-    {% for t in my_teams %}
-    <a class="team-chip" href="{{ url_for('team', tid=t.id) }}"><b>{{ t.name }}</b><span class="muted small">{{ t.discipline }}{% if t.is_leader %} · MF{% endif %}</span></a>
+  {% for short, label, group in my_teams|nach_disziplin %}
+  <h3 class="cat-head"><span class="cat-badge">{{ short or '·' }}</span> {{ label }}</h3>
+  <div class="my-teams">
+    {% for t in group %}
+    <a class="card my-team" href="{{ url_for('team', tid=t.id) }}">
+      <div class="my-team-head">
+        <b>{{ t.name }}</b>
+        {% if t.is_member %}<span class="pill {{ 'sub' if t.reserve else 'gold' }}">{{ 'Ersatzschütze' if t.reserve else 'Stammschütze' }}</span>{% endif %}
+        {% if t.is_leader %}<span class="pill open">Mannschaftsführer</span>{% endif %}
+      </div>
+      <div class="small muted">{{ t.discipline or '' }}{% if t.league %} · {{ t.league }}{% endif %}</div>
+      {% if t.next %}
+      <div class="small my-team-next">Nächster: {{ t.next.date|datum }} {{ 'vs.' if t.next.home else '@' }} {{ t.next.opponent }}
+        {% if t.next.lined %}<span class="ok-text">· du bist aufgestellt</span>{% elif t.is_member %}<span class="muted">· noch nicht aufgestellt</span>{% endif %}</div>
+      {% endif %}
+    </a>
     {% endfor %}
   </div>
+  {% endfor %}
   {% else %}
   <p class="muted">Du bist noch keiner Mannschaft zugeordnet.</p>
   {% endif %}

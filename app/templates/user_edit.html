@@ -71,6 +71,16 @@
         <button class="btn danger">Zugang sperren</button>
         <p class="muted small" style="margin:0">Gesperrte Mitglieder können sich nicht mehr anmelden und werden sofort abgemeldet. Ergebnisse und Statistik bleiben erhalten. Die Sperre lässt sich jederzeit aufheben.</p>
       </form>
+      <div class="stack" style="border-top:1px solid var(--line);padding-top:10px">
+        <p style="margin:0"><b>Zwei-Faktor-Anmeldung:</b> {% if twofa %}<span class="pill av-ja">eingerichtet</span>{% else %}<span class="muted">nicht eingerichtet</span>{% endif %}</p>
+        {% if twofa %}
+        <form method="post" action="{{ url_for('user_reset_2fa', uid=user.id) }}" onsubmit='return confirm({{ ("Zwei-Faktor-Anmeldung von " ~ user.name ~ " zurücksetzen? Passkeys und Authenticator-App werden entfernt.")|tojson }})'>
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small-btn">2FA zurücksetzen</button>
+          <p class="muted small" style="margin:4px 0 0">Nur wenn das Handy verloren ist und keine Wiederherstellungscodes mehr da sind.</p>
+        </form>
+        {% endif %}
+      </div>
     {% else %}
       <p style="margin:0"><span class="pill av-nein">gesperrt</span>{% if user.locked_at %} seit {{ user.locked_at[:10]|datum }}{% endif %}{% if user.lock_reason %} · Grund: {{ user.lock_reason }}{% endif %}</p>
       <form method="post" action="{{ url_for('user_unlock', uid=user.id) }}">

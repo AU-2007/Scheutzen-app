@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Sicherheit{% endblock %}
+{% block content %}
+<p><a class="back" href="{{ url_for('profile') }}">← Profil</a></p>
+<h1>Sicherheit &amp; Anmeldung</h1>
+
+{% if must and not active %}
+<div class="flash info"><b>Als Admin ist ein zweiter Faktor Pflicht.</b> Richte unten einen Passkey oder eine Authenticator-App ein. Danach kannst du die App wie gewohnt benutzen.</div>
+{% endif %}
+
+<div class="card status-2fa {{ 'on' if active }}">
+  <b>Zwei-Faktor-Anmeldung: {{ 'eingeschaltet' if active else 'aus' }}</b>
+  <p class="muted small" style="margin:4px 0 0">{% if active %}Bei der Anmeldung brauchst du außer dem Passwort noch dein Handy (Passkey oder Code).{% else %}Freiwillig für alle{{ ', Pflicht für Admins' }}. Schützt dein Konto, auch wenn jemand dein Passwort kennt.{% endif %}</p>
+</div>
+
+{% if new_codes %}
+<section id="codes">
+  <div class="card stack codes-card">
+    <b>Deine Wiederherstellungscodes</b>
+    <p class="small" style="margin:0">Damit kommst du rein, wenn das Handy weg ist. Jeder Code geht nur einmal. <b>Jetzt aufschreiben oder ausdrucken</b> – sie werden nur dieses eine Mal angezeigt.</p>
+    <ol class="codes">{% for c in new_codes %}<li><code>{{ c }}</code></li>{% endfor %}</ol>
+    <button type="button" class="btn small-btn" onclick="window.print()">Drucken</button>
+  </div>
+</section>
+{% endif %}
+
+<section id="passkey">
+  <h2>🔑 Passkey <span class="pill sub">empfohlen</span></h2>
+  <div class="card stack">
+    <p class="small" style="margin:0">Anmelden mit Fingerabdruck, Gesicht oder Handy-PIN – ohne Code abtippen. Geht mit Android, iPhone, Windows Hello und Mac. Kostenlos, keine App nötig.</p>
+    {% if keys %}
+    <ul class="pk-list">
+      {% for k in keys %}
+      <li>
+        <div><b>{{ k.name or 'Passkey' }}</b><span class="muted small"> · eingerichtet {{ k.created[:10]|datum }}{% if k.last_used %} · zuletzt benutzt {{ k.last_used|seit }}{% endif %}</span></div>
+        <details class="small"><summary>Ändern</summary>
+          <form method="post" class="inline-form" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="action" value="passkey_rename"><input type="hidden" name="pid" value="{{ k.id }}">
+            <input name="name" value="{{ k.name }}" maxlength="60" aria-label="Name"><button class="btn small-btn">Umbenennen</button></form>
+          <form method="post" class="inline-form" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="action" value="passkey_delete"><input type="hidden" name="pid" value="{{ k.id }}">
+            <input name="password" type="password" placeholder="Passwort zur Bestätigung" required autocomplete="current-password">
+            <button class="btn small-btn danger">Entfernen</button></form>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if passkeys_ok %}
+    <div class="stack">
+      <input id="pk-name" placeholder="Name, z. B. Mein Handy" maxlength="60" aria-label="Name für den Passkey">
+      <button type="button" class="btn {{ 'primary' if not keys }}" data-passkey-register="{{ url_for('passkey_reg') }}"
+              data-options-url="{{ url_for('passkey_reg_options') }}" data-name-field="pk-name">{{ 'Weiteren Passkey hinzufügen' if keys else 'Passkey einrichten' }}</button>
+      <p class="pk-msg flash error" hidden></p>
+    </div>
+    <p class="muted small" style="margin:0">Tipp: Auf jedem Gerät, mit dem du dich anmeldest, einen eigenen Passkey anlegen – oder einen zweiten als Reserve.</p>
+    {% else %}
+    <p class="muted small" style="margin:0">Passkeys funktionieren nur, wenn die App über HTTPS aufgerufen wird.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section id="app">
+  <h2>📱 Authenticator-App</h2>
+  <div class="card stack">
+    {% if u.totp_secret %}
+      <p style="margin:0"><span class="pill av-ja">eingerichtet</span> Bei der Anmeldung fragt die App nach dem 6-stelligen Code.</p>
+      <details class="small"><summary>Authenticator-App entfernen</summary>
+        <form method="post" class="inline-form" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="action" value="totp_off">
+          <input name="password" type="password" placeholder="Passwort zur Bestätigung" required autocomplete="current-password">
+          <button class="btn small-btn danger">Entfernen</button></form>
+      </details>
+    {% elif qr %}
+      <ol class="small steps-list">
+        <li>Authenticator-App öffnen (z. B. Google Authenticator, Microsoft Authenticator oder 2FAS – alle kostenlos).</li>
+        <li>Diesen QR-Code scannen{% if uri %} oder <a href="{{ uri }}">hier tippen</a>, wenn du am Handy bist{% endif %}.</li>
+        <li>Den 6-stelligen Code aus der App unten eingeben.</li>
+      </ol>
+      <div class="qr">{{ qr|safe }}</div>
+      <details class="small"><summary>Code lässt sich nicht scannen?</summary>
+        <p>Schlüssel von Hand eintragen (Zeitbasiert, 6 Ziffern):</p><p><code class="secret">{{ secret_fmt }}</code></p></details>
+      <form method="post" class="inline-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="totp_confirm">
+        <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456" required aria-label="Code aus der App">
+        <button class="btn primary">Bestätigen</button></form>
+    {% else %}
+      <p class="small" style="margin:0">Ein 6-stelliger Code aus einer App auf dem Handy, der sich alle 30 Sekunden ändert. Gut, wenn dein Gerät keine Passkeys kann.</p>
+      <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="totp_start">
+        <button class="btn {{ 'primary' if not keys }}">Authenticator-App einrichten</button></form>
+    {% endif %}
+  </div>
+</section>
+
+{% if active %}
+<section id="wiederherstellung">
+  <h2>Wiederherstellungscodes</h2>
+  <div class="card stack">
+    <p class="small" style="margin:0">Noch <b>{{ rc_left }}</b> unbenutzte Codes. Für den Notfall, wenn das Handy verloren ist.</p>
+    <details class="small"><summary>Neue Codes erzeugen</summary>
+      <form method="post" class="inline-form" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="recovery_new">
+        <input name="password" type="password" placeholder="Passwort zur Bestätigung" required autocomplete="current-password">
+        <button class="btn small-btn">Neue Codes</button></form>
+      <p class="muted">Die alten Codes gelten danach nicht mehr.</p>
+    </details>
+  </div>
+</section>
+{% endif %}
+<p class="muted small">Passwort ändern: <a href="{{ url_for('profile') }}#passwort">im Profil</a>.</p>
+<script src="{{ url_for('static', filename='js/passkey.js') }}"></script>
+{% endblock %}

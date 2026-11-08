@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Statistik{% endblock %}
+{% block content %}
+<p><a class="back" href="{{ url_for('profile') if own else url_for('user_edit', uid=who.id) }}">← {{ 'Profil' if own else who.name }}</a></p>
+<div class="head-row">
+  <h1>{{ 'Meine Statistik' if own else 'Statistik ' ~ who.name }}</h1>
+  {% if seasons %}
+  <form method="get" class="inline-form">
+    <select name="saison" onchange="this.form.submit()" aria-label="Saison">
+      {% for s in seasons %}<option value="{{ s }}" {{ 'selected' if s == sel }}>Saison {{ s }}</option>{% endfor %}
+      {% if seasons|length > 1 %}<option value="alle" {{ 'selected' if sel == 'alle' }}>Alle Saisons</option>{% endif %}
+    </select>
+    <noscript><button class="btn small-btn">Zeigen</button></noscript>
+  </form>
+  {% endif %}
+</div>
+
+{% if not groups %}
+<div class="card"><p class="muted" style="margin:0">Noch keine Ergebnisse. Sobald bei einem Wettkampf Ringe für {{ 'dich' if own else who.name }} eingetragen sind, erscheinen sie hier.</p></div>
+{% endif %}
+
+{% for g in groups %}
+<section class="stat-group">
+  <h2 class="cat-head"><span class="cat-badge">{{ g.short }}</span> {{ g.label }} <span class="muted small">{{ g.n }} {{ 'Wettkampf' if g.n == 1 else 'Wettkämpfe' }}</span></h2>
+  <div class="stats four">
+    <div class="stat"><b>{{ g.avg|ringe }}</b><span>Schnitt</span></div>
+    <div class="stat"><b>{{ g.best|ringe }}</b><span>Bestes</span></div>
+    <div class="stat"><b>{{ g.worst|ringe }}</b><span>Schwächstes</span></div>
+    <div class="stat"><b>{{ g.last5|ringe }}</b><span>Letzte 5<br><small class="{{ 'up' if g.last5 > g.avg + 0.05 else ('down' if g.last5 < g.avg - 0.05 else '') }}">{{ '▲ über' if g.last5 > g.avg + 0.05 else ('▼ unter' if g.last5 < g.avg - 0.05 else '= wie') }} Schnitt</small></span></div>
+  </div>
+  {% if g.n > 1 %}
+  {% set c = g.chart %}
+  <div class="card chart-card">
+    <svg viewBox="0 0 {{ c.w }} {{ c.h }}" class="chart" role="img" aria-label="Verlauf der Ringe {{ g.label }}">
+      <line x1="{{ c.pad }}" x2="{{ c.w - c.pad }}" y1="{{ c.avg_y }}" y2="{{ c.avg_y }}" class="avg"/>
+      <text x="{{ c.pad + 4 }}" y="{{ c.h - 4 }}" class="lbl">- - - Schnitt {{ g.avg|ringe }}</text>
+      <polyline points="{{ c.line }}" class="line"/>
+      {% for p in c.pts %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="7" class="pt {{ 'best' if p.v == g.best }}"><title>{{ p.date|datum }} · {{ p.opp }}: {{ p.v|ringe }}</title></circle>{% endfor %}
+      <text x="4" y="{{ c.pad + 7 }}" class="ax">{{ c.hi|ringe }}</text>
+      <text x="4" y="{{ c.h - c.pad + 7 }}" class="ax">{{ c.lo|ringe }}</text>
+    </svg>
+  </div>
+  {% endif %}
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Datum</th><th>Wettkampf</th><th class="num">Ringe</th><th class="num">±</th></tr></thead>
+      <tbody>
+      {% for i in g.rows|reverse %}
+        <tr><td class="small">{{ i.date|datum }}</td>
+          <td><a href="{{ url_for('match', mid=i.mid) }}">{{ i.team }} {{ 'vs.' if i.home else '@' }} {{ i.opponent }}</a></td>
+          <td class="num strong">{{ i.rings|ringe }}{% if i.rings == g.best %} <span title="Bestes Ergebnis">★</span>{% endif %}</td>
+          <td class="num small {{ 'up' if i.delta > 0.05 else ('down' if i.delta < -0.05 else 'muted') }}">{{ '+' if i.delta > 0 }}{{ i.delta|ringe }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endfor %}
+
+{% if per_season|length > 1 %}
+<section>
+  <h2>Alle Saisons im Vergleich</h2>
+  <div class="card flush">
+    <table>
+      <thead><tr><th>Saison</th><th class="num">Wettkämpfe</th><th class="num">Schnitt</th><th class="num">Bestes</th></tr></thead>
+      <tbody>{% for s in per_season %}<tr><td>{{ s.season }}</td><td class="num">{{ s.n }}</td><td class="num strong">{{ s.avg|ringe }}</td><td class="num">{{ s.best|ringe }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

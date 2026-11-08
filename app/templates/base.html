@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="{{ ACC[1] }}">
+<meta name="csrf" content="{{ csrf }}">
 <title>{% block title %}{{ VEREIN }}{% endblock %} · Mannschaften</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
@@ -44,6 +45,8 @@
         <div class="menu-group">
           {{ mi(url_for('profile'), 'user', 'Profil & Einstellungen', ep == 'profile') }}
           {{ mi(url_for('profile') ~ '#kalender', 'calendar', 'Handy-Kalender') }}
+          {{ mi(url_for('stats'), 'chart', 'Meine Statistik', ep == 'stats') }}
+          {{ mi(url_for('security'), 'shield', 'Sicherheit & Anmeldung', ep == 'security') }}
           {{ mi(url_for('help_page'), 'help', 'Anleitungen', ep == 'help_page') }}
         </div>
         {% if me.role in ('admin', 'leader') %}

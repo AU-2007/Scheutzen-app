@@ -132,6 +132,8 @@ Eingebaut:
 - Trennung Container ↔ Server: Die Wartungsskripte laufen als root, der Datenordner gehört aber dem Container. Darum folgen sie dort keinen Symlinks (`scripts/safeio.py`), lesen und schreiben Sicherung/Wiederherstellung als App-Benutzer (uid 1000) und starten Python isoliert (`python3 -I`). Ein übernommener Container kann so keine Systemdateien lesen, überschreiben oder sich übergeben lassen.
 - Wartungsdienst: nur feste Aktionen, alle Parameter werden auf dem Server noch einmal geprüft, ein Auftrag zur Zeit, kein Neustart in den ersten 10 Minuten nach dem Hochfahren (gegen Neustart-Schleifen)
 - Kalender-Abo-Links: 256 Bit Zufall, nur eigene Termine, für gesperrte Benutzer ungültig, jederzeit erneuerbar
+- Zwei-Faktor-Anmeldung für alle wählbar, für Admins Pflicht: Passkeys (WebAuthn, auch ohne Passwort), Authenticator-App (TOTP) und 10 Wiederherstellungscodes. Codes sind nur einmal gültig, Fehlversuche zählen zur Login-Sperre.
+- Push-Benachrichtigungen nur an die bekannten Push-Dienste (Google, Apple, Mozilla, Microsoft), Inhalt verschlüsselt (RFC 8291). Der Server-Schlüssel liegt in `data/vapid.pem`.
 
 Checkliste vor dem Livegang:
 1. `SECRET_KEY` mit `openssl rand -hex 32` setzen.
@@ -231,3 +233,26 @@ Beim Import von Schützen mit Vereinsspalte fragt die App vorher je Verein: als 
 ## Passwort vergessen?
 
 Der Admin öffnet den Benutzer, trägt ein neues Passwort ein und speichert. Beim nächsten Login muss der Benutzer es ändern.
+
+## Handy verloren (Zwei-Faktor)
+
+- Mitglieder: Admin → Benutzer → Zugang → **2FA zurücksetzen**.
+- Admin selbst ausgesperrt und keine Wiederherstellungscodes mehr:
+  ```bash
+  docker compose exec -w /srv/app mannschaften flask --app app reset-2fa BENUTZERNAME
+  ```
+  Danach mit Passwort anmelden; die App verlangt sofort eine neue Einrichtung.
+
+## Überwachung (kostenlos)
+
+`https://DEINE-DOMAIN/healthz` antwortet mit `ok`, solange App und Datenbank laufen (ohne Anmeldung, ohne Vereinsdaten).
+Bei UptimeRobot (Gratis-Tarif, Prüfung alle 5 Minuten) einen HTTP(s)- oder Keyword-Monitor (`ok`) darauf anlegen und die
+eigene E-Mail als Alarm eintragen. Weil von außen geprüft wird, fällt auch ein Ausfall von Server oder Tunnel auf.
+
+## Tests
+
+```bash
+python3 tests/run_all.py              # App
+sudo python3 tests/run_all.py --root  # zusätzlich Wartungsskripte
+```
+Bei jedem Push laufen alle Tests automatisch auf GitHub (Reiter „Actions“).

@@ -67,6 +67,14 @@
   {% if manage and rwk_lined %}
   <div class="flash error"><b>RWK-Ordnung VII:</b> {% for n, p in rwk_lined %}{{ n }}: {{ p|join(', ') }}{{ '; ' if not loop.last }}{% endfor %}. Bei einem Verstoß wird das Ergebnis dieses Schützen gestrichen.</div>
   {% endif %}
+  {% set n_open = rows|rejectattr('guest')|rejectattr('status')|list|length %}
+  {% if manage and not past and n_open %}
+  <form method="post" action="{{ url_for('match_remind', mid=m.id) }}" class="remind-row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <span class="small muted">{{ n_open }} noch ohne Antwort</span>
+    <button class="btn small-btn">🔔 Erinnern</button>
+  </form>
+  {% endif %}
   {% if manage and m.relegation %}<p class="small muted">Auf-/Abstiegskampf: zählt nicht zu den Einsätzen (RWK VII.4/6).</p>{% endif %}
   {% if manage %}
   <form method="post" action="{{ url_for('match_lineup', mid=m.id) }}" {% if lock_result %}data-past="Der Wettkampf ist schon vorbei und hat Ergebnisse. Wirklich nachträglich ändern?"{% endif %}>
@@ -78,7 +86,7 @@
             <td><input type="checkbox" name="lineup" value="{{ r.id }}" {{ 'checked' if r.in_lineup }} aria-label="{{ r.name }} aufstellen"></td>
             <td>{{ r.name }}{{ tag(r) }}{% set ri = rwk.get(r.id) %}
               {% if ri %}<div class="rwk-info small">{% if ri.problems %}{% for p in ri.problems %}<span class="bad-text">⚠ {{ p }}</span>{% endfor %}{% else %}<span class="muted">{{ ri.starts }}/{{ ri.limit }} Einsätze</span>{% endif %}</div>{% endif %}</td>
-            <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
+            <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ 'Abwesend' if r.auto else AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
             <td class="num"><input class="rings" name="rings_{{ r.id }}" inputmode="decimal" value="{{ r.rings|ringe if r.rings is not none }}" placeholder="–"></td>
           </tr>
     {% endmacro %}
@@ -187,7 +195,7 @@
   {% macro rrow(r) %}
         <tr class="{{ 'lined' if r.in_lineup }}">
           <td>{{ r.name }}{{ tag(r) }}{% if r.in_lineup and r.id == me.id %} <span class="pill gold">du</span>{% endif %}</td>
-          <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
+          <td>{% if r.status %}<span class="pill av-{{ r.status }}">{{ 'Abwesend' if r.auto else AVAIL[r.status] }}</span>{% else %}<span class="muted small">offen</span>{% endif %}</td>
           <td class="num strong">{{ r.rings|ringe if r.in_lineup else '' }}</td>
         </tr>
   {% endmacro %}

@@ -48,6 +48,10 @@
   {% else %}
   <p class="muted small">Mannschaftsführer und Bearbeiter legt der Admin fest.</p>
   {% endif %}
+  {% if is_admin and team and team.id %}
+  <input type="hidden" name="archived_present" value="1">
+  <label class="check"><input type="checkbox" name="archived" value="1" {{ 'checked' if team.archived }}> Archiviert (frühere Saison, wird nicht mehr in den Übersichten gezeigt)</label>
+  {% endif %}
   <button class="btn primary">Speichern</button>
 </form>
 {% if team and team.id and is_admin %}

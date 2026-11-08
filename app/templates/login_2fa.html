@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Anmelden{% endblock %}
+{% block content %}
+<div class="login">
+  <img class="login-logo" src="{{ url_for('static', filename='img/icon-512.png') }}" alt="Vereinswappen" width="110" height="110">
+  <h1>Bestätigen</h1>
+  <p class="muted">Hallo {{ u|vorname }}, bitte bestätige noch, dass du es bist.</p>
+  {% if passkeys %}
+  <div class="card stack">
+    <button type="button" class="btn primary" hidden data-passkey-login="{{ url_for('passkey_login') }}"
+            data-options-url="{{ url_for('passkey_login_options') }}">🔑 Mit Passkey bestätigen</button>
+    <p class="pk-msg flash error" hidden></p>
+    <p class="muted small" style="margin:0">Fingerabdruck, Gesicht oder Bildschirmsperre deines Geräts.</p>
+  </div>
+  <p class="muted small or-line">oder</p>
+  {% endif %}
+  <form method="post" class="card stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ 'Code aus der Authenticator-App' if u.totp_secret else 'Wiederherstellungscode' }}
+      <input name="code" inputmode="{{ 'numeric' if u.totp_secret else 'text' }}" autocomplete="one-time-code" autocapitalize="none"
+             maxlength="20" required {{ 'autofocus' if not passkeys }} placeholder="{{ '123 456' if u.totp_secret else 'abcd-efgh' }}"></label>
+    <button class="btn {{ 'primary' if not passkeys }}">Bestätigen</button>
+    {% if u.totp_secret %}<p class="muted small" style="margin:0">Handy nicht da? Gib stattdessen einen deiner Wiederherstellungscodes ein.</p>{% endif %}
+  </form>
+  <p class="small"><a href="{{ url_for('login') }}">Abbrechen</a></p>
+</div>
+<script src="{{ url_for('static', filename='js/passkey.js') }}"></script>
+{% endblock %}

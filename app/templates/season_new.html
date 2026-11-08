@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Neue Saison{% endblock %}
+{% block content %}
+<p><a class="back" href="{{ url_for('teams') }}">← Mannschaften</a></p>
+<h1>Neue Saison anlegen</h1>
+<p class="muted">Die ausgewählten Mannschaften werden mit ihren Schützen (Stamm und Ersatz), Mannschaftsführer und Bearbeitern für die neue Saison übernommen. Wettkämpfe und Ergebnisse bleiben bei der alten Saison.</p>
+<form method="post" class="stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="card stack">
+    <label>Neue Saison<input name="season" value="{{ target }}" pattern="\d{4}/\d{2}" required placeholder="2027/28"></label>
+    <label class="check"><input type="checkbox" name="archive" value="1" checked> Alte Mannschaften ins Archiv verschieben (bleiben mit allen Ergebnissen erhalten)</label>
+  </div>
+  {% if teams %}
+  <div class="card flush">
+    <table>
+      <thead><tr><th><input type="checkbox" id="all" checked aria-label="Alle"></th><th>Mannschaft</th><th>Saison</th><th class="num">Schützen</th></tr></thead>
+      <tbody>
+      {% for t in teams %}
+        <tr><td><input type="checkbox" name="team" value="{{ t.id }}" checked aria-label="{{ t.name }} übernehmen"></td>
+          <td><b>{{ t.name }}</b> <span class="muted small">{{ t.discipline }}{% if t.league %} · {{ t.league }}{% endif %}</span></td>
+          <td>{{ t.season or '–' }}</td><td class="num">{{ t.n_members }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">Nach dem Anlegen bei jeder Mannschaft Liga und RWK-Link prüfen – die ändern sich oft mit der Saison. Schützen kannst du danach wie gewohnt umstellen.</p>
+  <button class="btn primary">Saison anlegen</button>
+  {% else %}
+  <p class="muted">Keine aktiven Mannschaften.</p>
+  {% endif %}
+</form>
+<script>
+  document.getElementById('all') && document.getElementById('all').addEventListener('change', function (e) {
+    document.querySelectorAll('input[name=team]').forEach(function (c) { c.checked = e.target.checked; });
+  });
+</script>
+{% endblock %}

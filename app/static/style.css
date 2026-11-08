@@ -718,3 +718,32 @@ details.flush-fold table { margin: 0; }
   max-width: 560px; margin: 0 auto; display: grid; gap: 8px; transition: opacity .4s, transform .4s; }
 .flashes.toast .flash { margin: 0; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
 .flashes.toast.gone { opacity: 0; transform: translateY(20px); pointer-events: none; }
+/* Sicherheit, Push, Abwesenheit, Statistik */
+.passkey-alt { margin-top: 12px; display: grid; gap: 8px; }
+.passkey-alt .btn { width: 100%; }
+.or-line { text-align: center; margin: 10px 0; }
+.status-2fa { border-left: 4px solid var(--line); }
+.status-2fa.on { border-left-color: var(--green-2); }
+.codes { columns: 2; font-size: 1.05rem; margin: 0; padding-left: 1.4em; }
+.codes code { letter-spacing: .05em; }
+.codes-card { border: 2px dashed var(--line); }
+.pk-list, .abs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pk-list li, .abs-list li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.abs-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.qr { background: #fff; padding: 6px; border-radius: 8px; width: max-content; max-width: 100%; }
+.qr svg { display: block; max-width: 100%; height: auto; }
+.secret { font-size: 1.05rem; letter-spacing: .08em; word-break: break-all; }
+.steps-list { margin: 0; padding-left: 1.3em; }
+.link-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+.remind-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: -4px 0 8px; }
+.chart-card { padding: 8px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .line { fill: none; stroke: var(--green-2); stroke-width: 3.5; stroke-linejoin: round; }
+.chart .pt { fill: var(--card); stroke: var(--green-2); stroke-width: 3; }
+.chart .pt.best { fill: var(--gold); stroke: var(--gold); }
+.chart .avg { stroke: var(--muted); stroke-dasharray: 5 5; stroke-width: 1.5; }
+.chart .lbl, .chart .ax { fill: var(--muted); font-size: 22px; }
+.up { color: var(--green-2); } .down { color: var(--red); }
+.archive { margin-top: 18px; }
+@media print { header, nav, .back, form, section:not(#codes), .status-2fa, h1 { display: none !important; } }
+.row2 > label { min-width: 0; } .row2 input[type=date] { width: 100%; min-width: 0; box-sizing: border-box; }

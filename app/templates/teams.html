@@ -3,7 +3,7 @@
 {% block content %}
 <div class="head-row">
   <h1>Mannschaften</h1>
-  {% if me.role == 'admin' %}<a class="btn primary" href="{{ url_for('team_edit') }}">+ Neue Mannschaft</a>{% endif %}
+  {% if me.role == 'admin' %}<div class="inline wrap"><a class="btn" href="{{ url_for('season_new') }}">Neue Saison</a><a class="btn primary" href="{{ url_for('team_edit') }}">+ Neue Mannschaft</a></div>{% endif %}
 </div>
 {% if teams %}
 {% for short, label, group in teams|nach_disziplin %}
@@ -20,6 +20,20 @@
 </div>
 {% endfor %}
 {% else %}
-<p class="muted">Noch keine Mannschaften angelegt.</p>
+<p class="muted">{{ 'Keine aktiven Mannschaften. Frühere Saisons stehen unten im Archiv.' if archive else 'Noch keine Mannschaften angelegt.' }}</p>
+{% endif %}
+{% if archive %}
+<details class="card fold archive" id="archiv">
+  <summary><b>Archiv – frühere Saisons</b><span class="muted small">{{ archive.values()|map('length')|sum }} Mannschaften</span></summary>
+  {% for season, group in archive|dictsort(reverse=true) %}
+  <h3 class="sub-head">Saison {{ season }}</h3>
+  <div class="grid">
+    {% for t in group %}
+    <a class="card tile" href="{{ url_for('team', tid=t.id) }}"><div class="strong">{{ t.name }}</div>
+      <div class="muted small">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %}</div></a>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</details>
 {% endif %}
 {% endblock %}

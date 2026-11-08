@@ -17,8 +17,10 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from functools import wraps
 
-from flask import (Flask, abort, flash, g, redirect, render_template, request,
-                   session, url_for)
+import time
+import click
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, request,
+                   send_from_directory, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "data", "verein.db"))
@@ -43,6 +45,9 @@ ICONS = {
     "groups": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
     "home": '<path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
     "tool": '<path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L3 18l3 3 6.2-6.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/>',
+    "shield": '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/>',
+    "chart": '<path d="M4 20V4M4 20h16"/><path d="m7 15 4-4 3 3 5-6"/>',
+    "bell": '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
     "logout": '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>',
 }
 ROLES = {"admin": "Admin", "leader": "Mannschaftsführer", "trainer": "Trainer", "shooter": "Schütze"}
@@ -338,6 +343,51 @@ CREATE TABLE IF NOT EXISTS match_opp (
   relay INTEGER,
   pos INTEGER NOT NULL DEFAULT 0
 );
+-- Zwei-Faktor: Passkeys und Wiederherstellungscodes
+CREATE TABLE IF NOT EXISTS passkeys (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cred_id TEXT UNIQUE NOT NULL,
+  public_key BLOB NOT NULL,
+  sign_count INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL DEFAULT '',
+  created TEXT NOT NULL,
+  last_used TEXT
+);
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at TEXT,
+  PRIMARY KEY (user_id, code_hash)
+);
+-- Push-Benachrichtigungen (ein Eintrag pro Gerät)
+CREATE TABLE IF NOT EXISTS push_subs (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  device TEXT NOT NULL DEFAULT '',
+  created TEXT NOT NULL,
+  last_ok TEXT,
+  fails INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS push_log (           -- verhindert doppelte Erinnerungen
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (kind, ref, user_id)
+);
+-- Abwesenheiten: Wettkämpfe im Zeitraum werden automatisch abgesagt
+CREATE TABLE IF NOT EXISTS absences (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start TEXT NOT NULL,
+  end TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created TEXT NOT NULL
+);
 """
 WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 TRAINING_WEEKS = 4      # so weit im Voraus werden Trainings angezeigt
@@ -389,6 +439,13 @@ MIGRATIONS = [
     ("lineup", "lane", "INTEGER"),                         # Stand
     ("lineup", "relay", "INTEGER"),                        # Durchgang
     ("lineup", "pos", "INTEGER NOT NULL DEFAULT 0"),       # Reihenfolge / Paarung
+    ("users", "totp_secret", "TEXT"),                      # Authenticator-App (NULL = aus)
+    ("users", "totp_last", "INTEGER"),                     # zuletzt benutzter Zeitschritt (kein Wiederverwenden)
+    ("users", "webauthn_handle", "TEXT"),                  # zufällige Kennung für Passkeys
+    ("users", "push_remind", "INTEGER NOT NULL DEFAULT 1"),  # Erinnerung an offene Rückmeldungen
+    ("users", "push_lineup", "INTEGER NOT NULL DEFAULT 1"),  # Nachricht, wenn aufgestellt
+    ("availability", "auto", "INTEGER NOT NULL DEFAULT 0"),  # 1 = durch Abwesenheit gesetzt
+    ("teams", "archived", "INTEGER NOT NULL DEFAULT 0"),     # 1 = frühere Saison (Archiv)
 ]
 RIDE_MODES = {"fahrer": "Ich fahre", "mitfahrer": "Brauche Mitfahrt", "selbst": "Eigene Anreise"}
 
@@ -480,11 +537,16 @@ def login_required(f):
     def wrapper(*a, **kw):
         u = current_user()
         if not u:
+            pending = session.get("pending2fa")
             session.clear()
+            if pending:                      # offener zweiter Schritt bleibt erhalten
+                session["pending2fa"] = pending
             return redirect(url_for("login", next=request.path))
         if u["must_change_pw"] and request.endpoint not in ("password", "logout"):
             flash("Bitte lege zuerst ein eigenes Passwort fest.", "info")
             return redirect(url_for("password"))
+        if ADMIN_2FA and u["role"] == "admin" and request.endpoint not in TWOFA_FREE and not has_2fa(u):
+            return redirect(url_for("security"))
         return f(*a, **kw)
     return wrapper
 
@@ -748,7 +810,8 @@ def track_activity():
 def csrf_protect():
     if request.method == "POST":
         token = session.get("csrf")
-        if not token or not secrets.compare_digest(token, request.form.get("csrf", "")):
+        sent = request.form.get("csrf", "") or request.headers.get("X-CSRF-Token", "")
+        if not token or not secrets.compare_digest(token, sent):
             abort(400, "Ungültiges Formular-Token – bitte Seite neu laden.")
 
 
@@ -784,6 +847,13 @@ def login():
         now = datetime.now().isoformat(timespec="seconds")
         ex("INSERT INTO login_log (at, user_id, username, ip, agent, ok) VALUES (?,?,?,?,?,?)",
            (now, u["id"] if ok else None, name[:80], ip, (request.user_agent.string or "")[:250], 1 if ok else 0))
+        if ok and has_2fa(u):
+            # Passwort stimmt – jetzt noch Code oder Passkey (Anmeldung wird erst danach protokolliert)
+            ex("DELETE FROM login_log WHERE at=? AND username=? AND ok=1", (now, name[:80]))
+            session.clear()
+            session["pending2fa"] = {"uid": u["id"], "pw_ver": u["pw_ver"], "at": time.time(),
+                                     "next": safe_next(request.args.get("next"), "")}
+            return redirect(url_for("login_2fa"))
         if ok:
             ex("UPDATE users SET last_login=?, last_seen=? WHERE id=?", (now, now, u["id"]))
             ex("DELETE FROM login_log WHERE at < ?", ((datetime.now() - timedelta(days=LOG_KEEP_DAYS)).isoformat(),))
@@ -796,7 +866,7 @@ def login():
             flash("Dein Zugang ist gesperrt. Bitte wende dich an den Admin.", "error")
         else:
             flash("Benutzername oder Passwort falsch.", "error")
-    return render_template("login.html")
+    return render_template("login.html", passkeys_ok=passkeys_possible())
 
 
 @app.route("/logout", methods=["POST"])
@@ -829,6 +899,736 @@ def password():
     if not u["must_change_pw"]:
         return redirect(url_for("profile") + "#passwort")
     return render_template("password.html")
+
+
+# ---------------------------------------------------------------- Zwei-Faktor-Anmeldung
+import sicherheit as SEC
+
+ADMIN_2FA = os.environ.get("ADMIN_2FA", "1") != "0"      # Pflicht für Admins (nur für Tests abschaltbar)
+TWOFA_FREE = {"security", "passkey_reg_options", "passkey_reg", "password", "logout", "static", "service_worker",
+              "manifest", "healthz"}
+PENDING_MAX = 300           # Sekunden für den zweiten Schritt
+
+
+def has_2fa(u):
+    return bool(u["totp_secret"]) or q("SELECT 1 FROM passkeys WHERE user_id=?", (u["id"],), one=True) is not None
+
+
+def rp_id():
+    return os.environ.get("WEBAUTHN_RP_ID") or request.host.split(":")[0]
+
+
+def rp_origin():
+    return os.environ.get("WEBAUTHN_ORIGIN") or f"{request.scheme}://{request.host}"
+
+
+def passkeys_possible():
+    """Passkeys gehen nur über HTTPS (oder localhost beim Testen)."""
+    return request.is_secure or request.host.split(":")[0] in ("localhost", "127.0.0.1")
+
+
+def login_fails(name, ip):
+    since = (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")
+    a = q("SELECT COUNT(*) n FROM login_log WHERE ok=0 AND ip=? AND at>=?", (ip, since), one=True)["n"]
+    b = q("SELECT COUNT(*) n FROM login_log WHERE ok=0 AND username=? COLLATE NOCASE AND at>=?", (name[:80], since), one=True)["n"]
+    return max(a, b)
+
+
+def log_login(u, name, ok, note=""):
+    now = datetime.now().isoformat(timespec="seconds")
+    agent = ((note + " · ") if note else "") + (request.user_agent.string or "")
+    ex("INSERT INTO login_log (at, user_id, username, ip, agent, ok) VALUES (?,?,?,?,?,?)",
+       (now, u["id"] if (u and ok) else None, (name or "")[:80], request.remote_addr or "", agent[:250], 1 if ok else 0))
+
+
+def finish_login(u, nxt=None, note=""):
+    now = datetime.now().isoformat(timespec="seconds")
+    log_login(u, u["username"], True, note)
+    ex("UPDATE users SET last_login=?, last_seen=? WHERE id=?", (now, now, u["id"]))
+    ex("DELETE FROM login_log WHERE at < ?", ((datetime.now() - timedelta(days=LOG_KEEP_DAYS)).isoformat(),))
+    session.clear()
+    session.permanent = True
+    session["uid"] = u["id"]
+    session["pw_ver"] = u["pw_ver"]
+    return safe_next(nxt, url_for("index"))
+
+
+def pending_user():
+    p = session.get("pending2fa")
+    if not p or time.time() - p.get("at", 0) > PENDING_MAX:
+        return None
+    u = q("SELECT * FROM users WHERE id=? AND active=1", (p["uid"],), one=True)
+    if not u or u["pw_ver"] != p.get("pw_ver"):
+        return None
+    return u
+
+
+@app.route("/login/zweiter-schritt", methods=["GET", "POST"])
+def login_2fa():
+    u = pending_user()
+    if not u:
+        session.pop("pending2fa", None)
+        flash("Die Anmeldung ist abgelaufen. Bitte noch einmal.", "info")
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        if login_fails(u["username"], request.remote_addr or "") >= MAX_FAILED_LOGINS:
+            flash("Zu viele Fehlversuche. Bitte in 10 Minuten noch einmal versuchen.", "error")
+            return render_template("login_2fa.html", u=u, passkeys=bool(q("SELECT 1 FROM passkeys WHERE user_id=?", (u["id"],), one=True))), 429
+        code = request.form.get("code", "").strip()
+        step = SEC.totp_verify(u["totp_secret"], code, u["totp_last"]) if u["totp_secret"] else None
+        if step is not None:
+            ex("UPDATE users SET totp_last=? WHERE id=?", (step, u["id"]))
+            return redirect(finish_login(u, session["pending2fa"].get("next"), "2FA App"))
+        h = SEC.recovery_hash(code)
+        rc = q("SELECT 1 FROM recovery_codes WHERE user_id=? AND code_hash=? AND used_at IS NULL", (u["id"], h), one=True)
+        if rc and len(h) and len("".join(c for c in code if c.isalnum())) >= 8:
+            ex("UPDATE recovery_codes SET used_at=? WHERE user_id=? AND code_hash=?",
+               (datetime.now().isoformat(timespec="seconds"), u["id"], h))
+            left = q("SELECT COUNT(*) n FROM recovery_codes WHERE user_id=? AND used_at IS NULL", (u["id"],), one=True)["n"]
+            dest = finish_login(u, session["pending2fa"].get("next"), "2FA Wiederherstellungscode")
+            flash(f"Mit Wiederherstellungscode angemeldet. Noch {left} Codes übrig – bei Bedarf unter Sicherheit neue erzeugen.",
+                  "info")
+            return redirect(dest)
+        log_login(u, u["username"], False, "2FA falsch")
+        flash("Der Code stimmt nicht.", "error")
+    return render_template("login_2fa.html", u=u, passkeys=bool(q("SELECT 1 FROM passkeys WHERE user_id=?", (u["id"],), one=True)))
+
+
+def _challenge(kind):
+    ch = SEC.b64u(secrets.token_bytes(32))
+    session["wa"] = {"ch": ch, "kind": kind, "at": time.time()}
+    return ch
+
+
+def _take_challenge(kind):
+    w = session.pop("wa", None)
+    if not w or w.get("kind") != kind or time.time() - w.get("at", 0) > 300:
+        return None
+    return w["ch"]
+
+
+@app.route("/passkey/anmelden/optionen", methods=["POST"])
+def passkey_login_options():
+    """Ohne angemeldeten Benutzer: Anmeldung nur mit Passkey. Mit offenem 2. Schritt: Passkey als 2. Faktor."""
+    u = pending_user()
+    allow = []
+    if u:
+        allow = [{"type": "public-key", "id": r["cred_id"]} for r in q("SELECT cred_id FROM passkeys WHERE user_id=?", (u["id"],))]
+    return jsonify({"challenge": _challenge("2fa" if u else "login"), "rpId": rp_id(), "timeout": 120000,
+                    "userVerification": "preferred" if u else "required", "allowCredentials": allow})
+
+
+@app.route("/passkey/anmelden", methods=["POST"])
+def passkey_login():
+    data = request.get_json(silent=True) or {}
+    pu = pending_user()
+    kind = "2fa" if pu else "login"
+    ch = _take_challenge(kind)
+    ip = request.remote_addr or ""
+    if login_fails(pu["username"] if pu else "", ip) >= MAX_FAILED_LOGINS:
+        return jsonify({"ok": False, "msg": "Zu viele Fehlversuche. Bitte in 10 Minuten noch einmal versuchen."}), 429
+    pk = q("SELECT * FROM passkeys WHERE cred_id=?", (str(data.get("id", ""))[:400],), one=True)
+    u = q("SELECT * FROM users WHERE id=? AND active=1", (pk["user_id"],), one=True) if pk else None
+    try:
+        if not ch or not pk or not u or (pu and pu["id"] != u["id"]):
+            raise SEC.PasskeyError("Passkey unbekannt")
+        handle = (data.get("response") or {}).get("userHandle")
+        if handle and u["webauthn_handle"] and handle != u["webauthn_handle"]:
+            raise SEC.PasskeyError("Benutzer passt nicht")
+        count = SEC.webauthn_auth_verify(data, ch, rp_origin(), rp_id(), pk["public_key"], pk["sign_count"],
+                                         need_uv=not pu)
+    except (SEC.PasskeyError, ValueError, KeyError, TypeError, IndexError) as e:
+        log_login(pu or u, (pu or u or {"username": ""})["username"], False, f"Passkey: {e}")
+        return jsonify({"ok": False, "msg": "Der Passkey wurde nicht akzeptiert."}), 400
+    ex("UPDATE passkeys SET sign_count=?, last_used=? WHERE id=?", (count, datetime.now().isoformat(timespec="seconds"), pk["id"]))
+    nxt = (session.get("pending2fa") or {}).get("next") or data.get("next")
+    return jsonify({"ok": True, "next": finish_login(u, nxt, "Passkey" + (" (2FA)" if pu else ""))})
+
+
+@app.route("/profil/sicherheit", methods=["GET", "POST"])
+@login_required
+def security():
+    u = current_user()
+    if request.method == "POST":
+        action = request.form.get("action")
+        pw_ok = lambda: check_password_hash(u["password_hash"], request.form.get("password", ""))
+        if action == "totp_start":
+            session["totp_new"] = SEC.totp_new_secret()
+            return redirect(url_for("security") + "#app")
+        if action == "totp_confirm":
+            sec = session.get("totp_new")
+            step = SEC.totp_verify(sec, request.form.get("code", "")) if sec else None
+            if step is None:
+                flash("Der Code stimmt nicht. Prüfe die Uhrzeit am Handy und versuche es mit dem nächsten Code.", "error")
+                return redirect(url_for("security") + "#app")
+            ex("UPDATE users SET totp_secret=?, totp_last=? WHERE id=?", (sec, step, u["id"]))
+            session.pop("totp_new", None)
+            flash("Authenticator-App ist eingerichtet.", "ok")
+            ensure_recovery(u["id"])
+            return redirect(url_for("security"))
+        if action in ("totp_off", "passkey_delete", "recovery_new") and not pw_ok():
+            flash("Das Passwort stimmt nicht.", "error")
+            return redirect(url_for("security"))
+        n_pk = q("SELECT COUNT(*) n FROM passkeys WHERE user_id=?", (u["id"],), one=True)["n"]
+        if action == "totp_off":
+            if ADMIN_2FA and u["role"] == "admin" and n_pk == 0:
+                flash("Als Admin brauchst du einen zweiten Faktor. Lege erst einen Passkey an.", "error")
+            else:
+                ex("UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE id=?", (u["id"],))
+                flash("Authenticator-App entfernt.", "ok")
+        elif action == "passkey_delete":
+            pid = request.form.get("pid", type=int)
+            if ADMIN_2FA and u["role"] == "admin" and n_pk <= 1 and not u["totp_secret"]:
+                flash("Als Admin brauchst du einen zweiten Faktor. Richte erst die Authenticator-App oder einen weiteren Passkey ein.",
+                      "error")
+            else:
+                ex("DELETE FROM passkeys WHERE id=? AND user_id=?", (pid, u["id"]))
+                flash("Passkey entfernt.", "ok")
+        elif action == "passkey_rename":
+            ex("UPDATE passkeys SET name=? WHERE id=? AND user_id=?",
+               (request.form.get("name", "").strip()[:60], request.form.get("pid", type=int), u["id"]))
+            flash("Gespeichert.", "ok")
+        elif action == "recovery_new":
+            ensure_recovery(u["id"], force=True)
+        if not has_2fa(current_user_fresh(u["id"])):
+            ex("DELETE FROM recovery_codes WHERE user_id=?", (u["id"],))
+        return redirect(url_for("security"))
+    secret = session.get("totp_new")
+    qr = uri = None
+    if secret and not u["totp_secret"]:
+        uri = SEC.totp_uri(secret, u["username"], setting("club_name") or VEREIN_NAME)
+        qr = SEC.qr_svg(uri, scale=5)
+    keys = q("SELECT * FROM passkeys WHERE user_id=? ORDER BY created", (u["id"],))
+    rc_left = q("SELECT COUNT(*) n FROM recovery_codes WHERE user_id=? AND used_at IS NULL", (u["id"],), one=True)["n"]
+    return render_template("security.html", u=u, qr=qr, uri=uri, secret=secret, keys=keys, rc_left=rc_left,
+                           new_codes=session.pop("new_codes", None), must=ADMIN_2FA and u["role"] == "admin",
+                           active=has_2fa(u), passkeys_ok=passkeys_possible(),
+                           secret_fmt=" ".join(secret[i:i + 4] for i in range(0, len(secret), 4)) if secret else "")
+
+
+def current_user_fresh(uid):
+    return q("SELECT * FROM users WHERE id=?", (uid,), one=True)
+
+
+def ensure_recovery(uid, force=False):
+    if not force and q("SELECT 1 FROM recovery_codes WHERE user_id=? AND used_at IS NULL", (uid,), one=True):
+        return
+    codes = SEC.recovery_new()
+    conn = db()
+    conn.execute("DELETE FROM recovery_codes WHERE user_id=?", (uid,))
+    conn.executemany("INSERT INTO recovery_codes (user_id, code_hash) VALUES (?,?)", [(uid, SEC.recovery_hash(c)) for c in codes])
+    conn.commit()
+    session["new_codes"] = codes
+
+
+@app.route("/passkey/registrieren/optionen", methods=["POST"])
+@login_required
+def passkey_reg_options():
+    u = current_user()
+    handle = u["webauthn_handle"]
+    if not handle:
+        handle = SEC.b64u(secrets.token_bytes(32))
+        ex("UPDATE users SET webauthn_handle=? WHERE id=?", (handle, u["id"]))
+    return jsonify({
+        "challenge": _challenge("reg"), "timeout": 120000, "attestation": "none",
+        "rp": {"id": rp_id(), "name": setting("club_name") or VEREIN_NAME},
+        "user": {"id": handle, "name": u["username"], "displayName": u["name"]},
+        "pubKeyCredParams": [{"type": "public-key", "alg": a} for a in (-7, -8, -257)],
+        "authenticatorSelection": {"residentKey": "preferred", "requireResidentKey": False, "userVerification": "preferred"},
+        "excludeCredentials": [{"type": "public-key", "id": r["cred_id"]} for r in q("SELECT cred_id FROM passkeys WHERE user_id=?", (u["id"],))],
+    })
+
+
+@app.route("/passkey/registrieren", methods=["POST"])
+@login_required
+def passkey_reg():
+    u = current_user()
+    data = request.get_json(silent=True) or {}
+    ch = _take_challenge("reg")
+    try:
+        if not ch:
+            raise SEC.PasskeyError("abgelaufen")
+        cid, key, count, _uv = SEC.webauthn_register_verify(data, ch, rp_origin(), rp_id())
+    except (SEC.PasskeyError, ValueError, KeyError, TypeError, IndexError) as e:
+        return jsonify({"ok": False, "msg": f"Passkey konnte nicht gespeichert werden ({e})."}), 400
+    if q("SELECT 1 FROM passkeys WHERE cred_id=?", (cid,), one=True):
+        return jsonify({"ok": False, "msg": "Diesen Passkey gibt es schon."}), 400
+    name = str(data.get("name") or "").strip()[:60] or ua_device()
+    ex("INSERT INTO passkeys (user_id, cred_id, public_key, sign_count, name, created) VALUES (?,?,?,?,?,?)",
+       (u["id"], cid, key, count, name, datetime.now().isoformat(timespec="seconds")))
+    ensure_recovery(u["id"])
+    flash("Passkey gespeichert. Ab jetzt kannst du dich damit anmelden.", "ok")
+    return jsonify({"ok": True})
+
+
+def ua_device():
+    ua = request.user_agent.string or ""
+    for key, label in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android-Handy"), ("Macintosh", "Mac"),
+                       ("Windows", "Windows-PC"), ("Linux", "Linux-PC")):
+        if key in ua:
+            return label
+    return "Gerät"
+
+
+@app.route("/benutzer/<int:uid>/2fa-zuruecksetzen", methods=["POST"])
+@admin_required
+def user_reset_2fa(uid):
+    if uid == current_user()["id"]:
+        abort(403)
+    conn = db()
+    conn.execute("UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE id=?", (uid,))
+    conn.execute("DELETE FROM passkeys WHERE user_id=?", (uid,))
+    conn.execute("DELETE FROM recovery_codes WHERE user_id=?", (uid,))
+    conn.commit()
+    flash("Zwei-Faktor-Anmeldung zurückgesetzt. Der Benutzer kann sich jetzt nur mit Passwort anmelden"
+          " (Admins müssen danach neu einrichten).", "ok")
+    return redirect(url_for("user_edit", uid=uid))
+
+
+@app.cli.command("reset-2fa")
+@click.argument("username")
+def cli_reset_2fa(username):
+    """Notfall: 2FA eines Benutzers zurücksetzen (z. B. Admin hat Handy verloren)."""
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT id FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+    if not row:
+        print("Benutzer nicht gefunden.")
+        return
+    conn.execute("UPDATE users SET totp_secret=NULL, totp_last=NULL WHERE id=?", row)
+    conn.execute("DELETE FROM passkeys WHERE user_id=?", row)
+    conn.execute("DELETE FROM recovery_codes WHERE user_id=?", row)
+    conn.commit()
+    print(f"2FA für {username} zurückgesetzt. Nach der nächsten Anmeldung neu einrichten.")
+
+
+# ---------------------------------------------------------------- Push-Benachrichtigungen
+import threading
+import webpush as WP
+
+PUSH_HOSTS = ("fcm.googleapis.com", "android.googleapis.com", ".push.apple.com", ".mozilla.com", ".notify.windows.com",
+              "push.services.mozilla.com")
+_vapid = None
+_push_thread = {"pid": None}
+
+
+def vapid():
+    global _vapid
+    if _vapid is None:
+        _vapid = WP.Vapid(os.path.join(os.path.dirname(DB_PATH), "vapid.pem"))
+    return _vapid
+
+
+def push_subject():
+    url = setting("public_url")
+    return url if url.startswith("https://") else "mailto:push@example.org"
+
+
+def push_host_ok(endpoint):
+    try:
+        u = urlsplit(endpoint)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower()
+    return u.scheme == "https" and any(host == h.lstrip(".") or (h.startswith(".") and host.endswith(h)) for h in PUSH_HOSTS)
+
+
+def push_to(uids, title, body, url="/", tag=None, conn=None):
+    """Schickt an alle Geräte der Benutzer. Läuft im Hintergrund-Thread oder in der Anfrage (Test)."""
+    own = conn is None
+    conn = conn or sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    sent = 0
+    try:
+        uids = list(uids)
+        if not uids:
+            return 0
+        subs = conn.execute(f"SELECT * FROM push_subs WHERE user_id IN ({','.join('?' * len(uids))})", uids).fetchall()
+        for s in subs:
+            st = WP.send(vapid(), dict(s), {"title": title, "body": body, "url": url, "tag": tag or url}, push_subject())
+            if st in (200, 201, 202):
+                sent += 1
+                conn.execute("UPDATE push_subs SET last_ok=?, fails=0 WHERE id=?", (datetime.now().isoformat(timespec="seconds"), s["id"]))
+            elif st in (404, 410) or s["fails"] >= 4:
+                conn.execute("DELETE FROM push_subs WHERE id=?", (s["id"],))
+            else:
+                conn.execute("UPDATE push_subs SET fails=fails+1 WHERE id=?", (s["id"],))
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
+    return sent
+
+
+def push_async(uids, title, body, url="/", tag=None):
+    if PUSH_TEST_HOOK is not None:
+        PUSH_TEST_HOOK(list(uids), title, body, url)
+        return
+    def job(*args):
+        with app.app_context():
+            push_to(*args)
+    threading.Thread(target=job, args=(list(uids), title, body, url, tag), daemon=True).start()
+
+
+PUSH_TEST_HOOK = None      # Tests: Nachrichten abfangen statt zu senden
+
+
+def push_once(conn, kind, ref, uid):
+    """True, wenn diese Nachricht noch nie verschickt wurde (und merkt sie sich)."""
+    cur = conn.execute("INSERT OR IGNORE INTO push_log (kind, ref, user_id, at) VALUES (?,?,?,?)",
+                       (kind, str(ref), uid, datetime.now().isoformat(timespec="seconds")))
+    return cur.rowcount == 1
+
+
+def remind_days():
+    raw = setting("remind_days", "5,2")
+    out = sorted({int(x) for x in re.findall(r"\d+", raw) if 0 < int(x) <= 30}, reverse=True)
+    return out
+
+
+def run_reminders(now=None):
+    """Erinnert an offene Rückmeldungen (x Tage vor dem Wettkampf). Mehrfach aufrufen schadet nicht."""
+    with app.app_context():
+        return _run_reminders(now)
+
+
+def _run_reminders(now=None):
+    now = now or datetime.now()
+    if not 9 <= now.hour < 20:          # nachts und spätabends keine Nachrichten
+        return 0
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    n = 0
+    try:
+        apply_absences(conn)
+        for d in remind_days():
+            day = (now.date() + timedelta(days=d)).isoformat()
+            rows = conn.execute("""SELECT m.id, m.date, m.time, m.opponent, m.home, t.name team, tm.user_id
+                FROM matches m JOIN teams t ON t.id=m.team_id JOIN team_members tm ON tm.team_id=t.id
+                JOIN users u ON u.id=tm.user_id AND u.active=1 AND u.push_remind=1
+                WHERE m.date=? AND NOT EXISTS (SELECT 1 FROM availability a WHERE a.match_id=m.id AND a.user_id=tm.user_id)
+                AND EXISTS (SELECT 1 FROM push_subs s WHERE s.user_id=tm.user_id)""", (day,)).fetchall()
+            for r in rows:
+                if push_once(conn, "remind", f"{r['id']}:{d}", r["user_id"]):
+                    conn.commit()
+                    when = "morgen" if d == 1 else f"in {d} Tagen"
+                    push_to([r["user_id"]], "Bitte zu- oder absagen",
+                            f"{r['team']} {'vs.' if r['home'] else '@'} {r['opponent']} – {when} ({push_date(r['date'])}, {r['time']} Uhr)",
+                            f"/wettkampf/{r['id']}", tag=f"m{r['id']}", conn=conn)
+                    n += 1
+        conn.execute("DELETE FROM push_log WHERE at < ?", ((now - timedelta(days=120)).isoformat(),))
+        conn.commit()
+    finally:
+        conn.close()
+    return n
+
+
+def push_date(iso):
+    try:
+        d = date.fromisoformat(iso)
+        return f"{WEEKDAYS[d.weekday()][:2]}, {d.day:02d}.{d.month:02d}."
+    except ValueError:
+        return iso
+
+
+def _push_loop():
+    time.sleep(20)
+    while True:
+        try:
+            run_reminders()
+        except Exception:
+            app.logger.exception("Erinnerungen")
+        time.sleep(600)
+
+
+@app.before_request
+def start_background():
+    if _push_thread["pid"] != os.getpid() and not app.config.get("TESTING"):
+        _push_thread["pid"] = os.getpid()
+        threading.Thread(target=_push_loop, daemon=True).start()
+    if request.is_secure and not getattr(app, "_url_saved", False):
+        app._url_saved = True
+        try:
+            base = f"https://{request.host}"
+            if setting("public_url") != base:
+                ex("INSERT INTO settings (key, value) VALUES ('public_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (base,))
+        except sqlite3.Error:
+            pass
+
+
+@app.route("/sw.js")
+def service_worker():
+    resp = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript", max_age=0)
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/push/abo", methods=["POST"])
+@login_required
+def push_subscribe():
+    u = current_user()
+    data = request.get_json(silent=True) or {}
+    ep = str(data.get("endpoint", ""))[:800]
+    keys = data.get("keys") or {}
+    p256, auth = str(keys.get("p256dh", ""))[:200], str(keys.get("auth", ""))[:100]
+    try:
+        ok = push_host_ok(ep) and len(SEC.b64u_dec(p256)) == 65 and len(SEC.b64u_dec(auth)) == 16
+    except ValueError:
+        ok = False
+    if not ok:
+        return jsonify({"ok": False, "msg": "Dieser Browser wird nicht unterstützt."}), 400
+    if q("SELECT COUNT(*) n FROM push_subs WHERE user_id=?", (u["id"],), one=True)["n"] >= 10:
+        ex("DELETE FROM push_subs WHERE id=(SELECT id FROM push_subs WHERE user_id=? ORDER BY created LIMIT 1)", (u["id"],))
+    ex("""INSERT INTO push_subs (user_id, endpoint, p256dh, auth, device, created) VALUES (?,?,?,?,?,?)
+          ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth,
+          device=excluded.device, fails=0""",
+       (u["id"], ep, p256, auth, ua_device(), datetime.now().isoformat(timespec="seconds")))
+    return jsonify({"ok": True})
+
+
+@app.route("/push/abmelden", methods=["POST"])
+@login_required
+def push_unsubscribe():
+    data = request.get_json(silent=True) or {}
+    ex("DELETE FROM push_subs WHERE endpoint=? AND user_id=?", (str(data.get("endpoint", ""))[:800], current_user()["id"]))
+    return jsonify({"ok": True})
+
+
+@app.route("/push/test", methods=["POST"])
+@login_required
+def push_test():
+    u = current_user()
+    n = push_to([u["id"]], "Test-Benachrichtigung", "So sehen Erinnerungen aus. Alles eingerichtet!", "/profil#push")
+    flash(f"Test an {n} Gerät{'e' if n != 1 else ''} geschickt." if n else
+          "Konnte nichts senden. Benachrichtigungen auf diesem Gerät neu aktivieren.", "ok" if n else "error")
+    return redirect(url_for("profile") + "#push")
+
+
+@app.route("/push/einstellungen", methods=["POST"])
+@login_required
+def push_prefs():
+    ex("UPDATE users SET push_remind=?, push_lineup=? WHERE id=?",
+       (1 if request.form.get("push_remind") else 0, 1 if request.form.get("push_lineup") else 0, current_user()["id"]))
+    flash("Gespeichert.", "ok")
+    return redirect(url_for("profile") + "#push")
+
+
+@app.route("/wettkampf/<int:mid>/erinnern", methods=["POST"])
+@login_required
+def match_remind(mid):
+    m = get_match(mid)
+    t = get_team(m["team_id"])
+    if not can_manage(t):
+        abort(403)
+    since = (datetime.now() - timedelta(hours=3)).isoformat(timespec="seconds")
+    if q("SELECT 1 FROM push_log WHERE kind='manual' AND ref LIKE ? AND at>=?", (f"{mid}:%", since), one=True):
+        flash("Es wurde gerade erst erinnert. Bitte frühestens nach 3 Stunden noch einmal.", "info")
+        return redirect(url_for("match", mid=mid))
+    open_ = [r["user_id"] for r in q("""SELECT tm.user_id FROM team_members tm JOIN users u ON u.id=tm.user_id AND u.active=1
+             WHERE tm.team_id=? AND NOT EXISTS (SELECT 1 FROM availability a WHERE a.match_id=? AND a.user_id=tm.user_id)
+             AND EXISTS (SELECT 1 FROM push_subs s WHERE s.user_id=tm.user_id)""", (t["id"], mid))]
+    stamp = datetime.now().strftime("%Y%m%d%H%M")
+    conn = db()
+    for uid in open_:
+        push_once(conn, "manual", f"{mid}:{stamp}", uid)
+    conn.commit()
+    push_async(open_, "Bitte zu- oder absagen",
+               f"{t['name']} {'vs.' if m['home'] else '@'} {m['opponent']} am {push_date(m['date'])}, {m['time']} Uhr",
+               url_for("match", mid=mid), f"m{mid}")
+    flash(f"Erinnerung an {len(open_)} Schützen geschickt." if open_ else "Niemand mit offener Rückmeldung hat Benachrichtigungen an.",
+          "ok" if open_ else "info")
+    return redirect(url_for("match", mid=mid))
+
+
+# ---------------------------------------------------------------- Abwesenheiten
+def apply_absences(conn=None):
+    """Trägt für alle künftigen Wettkämpfe in einer Abwesenheit eine Absage ein (nur wo noch nichts steht)."""
+    own = conn is None
+    conn = conn or db()
+    conn.execute("""INSERT OR IGNORE INTO availability (match_id, user_id, status, auto)
+                    SELECT m.id, a.user_id, 'nein', 1 FROM absences a
+                    JOIN team_members tm ON tm.user_id=a.user_id JOIN matches m ON m.team_id=tm.team_id
+                    WHERE m.date BETWEEN a.start AND a.end AND m.date >= ?""", (date.today().isoformat(),))
+    if own:
+        conn.commit()
+
+
+@app.after_request
+def absences_after_post(resp):
+    if request.method == "POST" and resp.status_code < 400 and session.get("uid"):
+        try:
+            apply_absences()
+        except sqlite3.Error:
+            pass
+    return resp
+
+
+@app.route("/abwesenheit", methods=["POST"])
+@login_required
+def absence_add():
+    u = current_user()
+    try:
+        start = date.fromisoformat(request.form.get("start", ""))
+        end = date.fromisoformat(request.form.get("end", "") or request.form.get("start", ""))
+    except ValueError:
+        flash("Bitte ein gültiges Datum eingeben.", "error")
+        return redirect(url_for("profile") + "#abwesenheit")
+    if end < start:
+        start, end = end, start
+    if end < date.today() or (end - start).days > 366:
+        flash("Der Zeitraum muss in der Zukunft liegen und darf höchstens ein Jahr lang sein.", "error")
+        return redirect(url_for("profile") + "#abwesenheit")
+    conn = db()
+    conn.execute("INSERT INTO absences (user_id, start, end, note, created) VALUES (?,?,?,?,?)",
+                 (u["id"], start.isoformat(), end.isoformat(), request.form.get("note", "").strip()[:100],
+                  datetime.now().isoformat(timespec="seconds")))
+    hit = conn.execute("""SELECT m.id FROM matches m JOIN team_members tm ON tm.team_id=m.team_id AND tm.user_id=?
+                          WHERE m.date BETWEEN ? AND ? AND m.date >= ?""",
+                       (u["id"], start.isoformat(), end.isoformat(), date.today().isoformat())).fetchall()
+    for (mid,) in hit:
+        conn.execute("""INSERT INTO availability (match_id, user_id, status, auto) VALUES (?,?, 'nein', 1)
+                        ON CONFLICT(match_id, user_id) DO UPDATE SET status='nein', auto=1""", (mid, u["id"]))
+    conn.commit()
+    flash(f"Abwesenheit eingetragen. {len(hit)} Wettkampf{'' if len(hit) == 1 else 'e'} automatisch abgesagt."
+          if hit else "Abwesenheit eingetragen. Wettkämpfe in diesem Zeitraum werden automatisch abgesagt.", "ok")
+    return redirect(url_for("profile") + "#abwesenheit")
+
+
+@app.route("/abwesenheit/<int:aid>/loeschen", methods=["POST"])
+@login_required
+def absence_delete(aid):
+    u = current_user()
+    a = q("SELECT * FROM absences WHERE id=? AND user_id=?", (aid, u["id"]), one=True)
+    if not a:
+        abort(404)
+    conn = db()
+    conn.execute("DELETE FROM absences WHERE id=?", (aid,))
+    # automatische Absagen wieder öffnen (außer ein anderer Zeitraum deckt den Tag noch ab)
+    cur = conn.execute("""DELETE FROM availability WHERE user_id=? AND auto=1 AND match_id IN
+                    (SELECT id FROM matches WHERE date BETWEEN ? AND ? AND date >= ?)
+                    AND NOT EXISTS (SELECT 1 FROM absences b JOIN matches m ON m.id=availability.match_id
+                                    WHERE b.user_id=availability.user_id AND m.date BETWEEN b.start AND b.end)""",
+                       (u["id"], a["start"], a["end"], date.today().isoformat()))
+    conn.commit()
+    flash("Abwesenheit gelöscht." + (f" {cur.rowcount} Wettkämpfe sind wieder offen – bitte neu zu- oder absagen."
+                                     if cur.rowcount else ""), "ok")
+    return redirect(url_for("profile") + "#abwesenheit")
+
+
+def my_absences(uid):
+    return q("SELECT * FROM absences WHERE user_id=? AND end >= ? ORDER BY start", (uid, date.today().isoformat()))
+
+
+# ---------------------------------------------------------------- Saisonwechsel
+def next_season(s):
+    m = re.match(r"^(\d{4})/(\d{2})$", s or "")
+    if not m:
+        y = int(season_of(None, date.today().isoformat())[:4])
+    else:
+        y = int(m.group(1))
+    return f"{y + 1}/{str(y + 2)[-2:]}"
+
+
+@app.route("/mannschaften/neue-saison", methods=["GET", "POST"])
+@admin_required
+def season_new():
+    teams_ = q("""SELECT t.*, (SELECT COUNT(*) FROM team_members WHERE team_id=t.id) n_members
+                  FROM teams t WHERE t.archived=0 ORDER BY t.name""")
+    cur = max((t["season"] for t in teams_ if re.match(r"^\d{4}/\d{2}$", t["season"] or "")), default="") \
+        or season_of(None, date.today().isoformat())
+    if request.method == "POST":
+        target = request.form.get("season", "").strip()
+        if not re.match(r"^\d{4}/\d{2}$", target):
+            flash("Saison bitte so angeben: 2027/28", "error")
+            return redirect(url_for("season_new"))
+        ids = {int(x) for x in request.form.getlist("team") if x.isdigit()}
+        archive = request.form.get("archive") == "1"
+        conn = db()
+        n = 0
+        for t in teams_:
+            if t["id"] not in ids:
+                continue
+            if t["season"] == target:
+                continue
+            new_id = conn.execute("""INSERT INTO teams (name, discipline, league, season, leader_id, rwk_name, ext_id, rank, max_starts)
+                                     VALUES (?,?,?,?,?,?,?,?,?)""",
+                                  (t["name"], t["discipline"], t["league"], target, t["leader_id"], t["rwk_name"], t["ext_id"],
+                                   t["rank"], t["max_starts"])).lastrowid
+            conn.execute("INSERT INTO team_members (team_id, user_id, reserve) SELECT ?, user_id, reserve FROM team_members WHERE team_id=?",
+                         (new_id, t["id"]))
+            conn.execute("INSERT INTO team_editors (team_id, user_id) SELECT ?, user_id FROM team_editors WHERE team_id=?",
+                         (new_id, t["id"]))
+            if archive:
+                conn.execute("UPDATE teams SET archived=1 WHERE id=?", (t["id"],))
+            n += 1
+        conn.commit()
+        flash(f"{n} Mannschaft{'en' if n != 1 else ''} für die Saison {target} angelegt."
+              + (" Die alten stehen jetzt im Archiv." if archive and n else "")
+              + " Tipp: Liga und RWK-Link bei jeder Mannschaft prüfen.", "ok")
+        return redirect(url_for("teams"))
+    return render_template("season_new.html", teams=teams_, cur=cur, target=next_season(cur))
+
+
+# ---------------------------------------------------------------- Statistik
+@app.route("/statistik")
+@app.route("/statistik/<int:uid>")
+@login_required
+def stats(uid=None):
+    me_ = current_user()
+    uid = uid or me_["id"]
+    if uid != me_["id"] and me_["role"] not in ("admin", "leader"):
+        abort(403)
+    who = q("SELECT id, name FROM users WHERE id=?", (uid,), one=True) or abort(404)
+    res = q("""SELECT l.rings, m.id mid, m.date, m.opponent, m.home, t.name team, t.discipline, t.season
+               FROM lineup l JOIN matches m ON m.id=l.match_id JOIN teams t ON t.id=m.team_id
+               WHERE l.user_id=? AND l.rings IS NOT NULL ORDER BY m.date, m.time""", (uid,))
+    seasons = sorted({season_of(None, r["date"]) for r in res}, reverse=True)
+    sel = request.args.get("saison") if request.args.get("saison") in seasons + ["alle"] else (seasons[0] if seasons else None)
+    rows = [r for r in res if sel == "alle" or season_of(None, r["date"]) == sel]
+    groups = {}
+    for r in rows:
+        short, label = disc_group(r["discipline"])
+        groups.setdefault((short or "–", label or (r["discipline"] or "Sonstige")), []).append(dict(r))
+    out = []
+    for (short, label), items in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        rings = [i["rings"] for i in items]
+        avg = sum(rings) / len(rings)
+        last5 = rings[-5:]
+        for i in items:
+            i["delta"] = i["rings"] - avg
+        out.append({"short": short, "label": label, "rows": items, "n": len(rings), "avg": avg, "best": max(rings),
+                    "worst": min(rings), "last5": sum(last5) / len(last5), "chart": stats_chart(items, avg)})
+    per_season = []
+    for s in seasons:
+        rs = [r["rings"] for r in res if season_of(None, r["date"]) == s]
+        per_season.append({"season": s, "n": len(rs), "avg": sum(rs) / len(rs), "best": max(rs)})
+    return render_template("stats.html", who=who, groups=out, seasons=seasons, sel=sel, per_season=per_season,
+                           own=uid == me_["id"])
+
+
+def stats_chart(items, avg, w=600, h=260, pad=44):
+    """Liniendiagramm als SVG-Daten (Punkte + Schnittlinie)."""
+    vals = [i["rings"] for i in items]
+    lo, hi = min(vals), max(vals)
+    if hi - lo < 4:
+        lo, hi = lo - 2, hi + 2
+    span = hi - lo
+    n = len(vals)
+    xs = [pad + (w - 2 * pad) * (k / (n - 1) if n > 1 else 0.5) for k in range(n)]
+    ys = [h - pad - (h - 2 * pad) * (v - lo) / span for v in vals]
+    pts = [{"x": round(x, 1), "y": round(y, 1), "v": v, "date": i["date"], "opp": i["opponent"]}
+           for x, y, v, i in zip(xs, ys, vals, items)]
+    return {"w": w, "h": h, "pad": pad, "pts": pts, "line": " ".join(f"{p['x']},{p['y']}" for p in pts),
+            "avg_y": round(h - pad - (h - 2 * pad) * (avg - lo) / span, 1), "lo": lo, "hi": hi}
+
+
+@app.route("/healthz")
+def healthz():
+    try:
+        q("SELECT 1")
+        return "ok", 200, {"Content-Type": "text/plain", "Cache-Control": "no-store"}
+    except sqlite3.Error:
+        return "db", 503, {"Content-Type": "text/plain"}
 
 
 # ---------------------------------------------------------------- Profil
@@ -906,10 +1706,16 @@ def profile():
             ex("UPDATE users SET avatar=0 WHERE id=?", (u["id"],))
             flash("Profilbild entfernt.", "ok")
         return redirect(url_for("profile"))
-    teams = q(f"SELECT name FROM teams WHERE id IN ({MY_TEAMS_SQL}) ORDER BY name", {"u": u["id"]})
+    teams = q(f"SELECT name FROM teams WHERE id IN ({MY_TEAMS_SQL}) AND archived=0 ORDER BY name", {"u": u["id"]})
     cal_url = url_for("calendar_feed", token=u["cal_token"], _external=True) if u["cal_token"] else None
+    try:
+        push_key = vapid().public
+    except Exception:
+        push_key = ""
     return render_template("profile.html", stats=user_stats(u["id"]), teams=teams, ACCENTS=ACCENTS, THEMES=THEMES,
-                           cal_url=cal_url, CAL_SCOPES=CAL_SCOPES, platform=device_platform())
+                           cal_url=cal_url, CAL_SCOPES=CAL_SCOPES, platform=device_platform(),
+                           absences=my_absences(u["id"]), push_key=push_key, twofa=has_2fa(u),
+                           push_devices=q("SELECT device, created, last_ok FROM push_subs WHERE user_id=? ORDER BY created", (u["id"],)))
 
 
 # ---------------------------------------------------------------- Kalender-Abo
@@ -1162,7 +1968,7 @@ def index():
     today_iso = date.today().isoformat()
     my_teams = [dict(t) for t in q(f"""SELECT t.*, t.leader_id = :u is_leader, tm.reserve, tm.user_id IS NOT NULL is_member
                      FROM teams t LEFT JOIN team_members tm ON tm.team_id=t.id AND tm.user_id=:u
-                     WHERE t.id IN ({MY_TEAMS_SQL}) ORDER BY t.name""", {"u": u["id"]})]
+                     WHERE t.id IN ({MY_TEAMS_SQL}) AND t.archived=0 ORDER BY t.name""", {"u": u["id"]})]
     for t in my_teams:   # nächster Wettkampf und ob ich dafür aufgestellt bin
         nm = q("""SELECT m.id, m.date, m.time, m.opponent, m.home,
                   EXISTS(SELECT 1 FROM lineup l WHERE l.match_id=m.id AND l.user_id=?) lined
@@ -1634,7 +2440,7 @@ def users():
     return render_template("users.html", users=rows, show=show, counts=counts, flt=flt, filtered=filtered, clubs=clubs,
                            BULK=BULK_ACTIONS,
                            back=request.full_path.rstrip("?"),
-                           teams=q("SELECT id, name, discipline FROM teams ORDER BY name"), groups=q("SELECT id, name FROM groups ORDER BY name"))
+                           teams=q("SELECT id, name, discipline FROM teams WHERE archived=0 ORDER BY name"), groups=q("SELECT id, name FROM groups ORDER BY name"))
 
 
 def temp_locked_names():
@@ -1820,7 +2626,8 @@ def user_edit(uid=None):
                      (SELECT team_id FROM team_members WHERE user_id=?) ORDER BY 2""", (uid, uid, uid, uid)) if uid else []
     return render_template("user_edit.html", user=user, all_groups=q("SELECT * FROM groups ORDER BY name"), member_of=member_of, GENDERS=GENDERS,
                            my_groups=user_group_ids(uid) if uid else set(), impact=impact,
-                           temp_locked=bool(user and user["username"] and user["username"].lower() in temp_locked_names()))
+                           temp_locked=bool(user and user["username"] and user["username"].lower() in temp_locked_names()),
+                           twofa=has_2fa(user) if (user and user["id"]) else False)
 
 
 def save_user_groups(uid):
@@ -2171,7 +2978,7 @@ def admin_dashboard():
         (SELECT COUNT(*) FROM login_log WHERE ok=1 AND at>=?) logins_day,
         (SELECT COUNT(*) FROM login_log WHERE ok=0 AND at>=?) failed_day,
         (SELECT COUNT(*) FROM error_log WHERE at>=?) errors_week,
-        (SELECT COUNT(*) FROM teams) teams,
+        (SELECT COUNT(*) FROM teams WHERE archived=0) teams,
         (SELECT COUNT(*) FROM matches WHERE date>=?) matches_up,
         (SELECT COUNT(*) FROM training_slots WHERE active=1 AND once_date IS NULL) slots""",
               (week_ago, day_ago, day_ago, week_ago, date.today().isoformat()), one=True)
@@ -2184,7 +2991,7 @@ def admin_dashboard():
         "no_result": q("""SELECT m.id, m.date, m.opponent, t.name team_name FROM matches m JOIN teams t ON t.id=m.team_id
                           WHERE m.date < ? AND m.date >= ? AND NOT EXISTS (SELECT 1 FROM lineup l WHERE l.match_id=m.id AND l.rings IS NOT NULL)
                           ORDER BY m.date DESC LIMIT 10""", (date.today().isoformat(), (date.today() - timedelta(days=60)).isoformat())),
-        "no_leader": q("SELECT id, name FROM teams WHERE leader_id IS NULL ORDER BY name"),
+        "no_leader": q("SELECT id, name FROM teams WHERE leader_id IS NULL AND archived=0 ORDER BY name"),
     }
     maint = maintenance_status()
     warnings = server_warnings(server, maint)
@@ -2300,7 +3107,11 @@ def teams():
                 (SELECT MIN(date) FROM matches WHERE team_id=t.id AND date>=?) next_match
                 FROM teams t LEFT JOIN users u ON u.id=t.leader_id
                 ORDER BY t.season DESC, t.name""", (date.today().isoformat(),))
-    return render_template("teams.html", teams=rows)
+    archive = {}
+    for t in rows:
+        if t["archived"]:
+            archive.setdefault(t["season"] or "ohne Saison", []).append(t)
+    return render_template("teams.html", teams=[t for t in rows if not t["archived"]], archive=archive)
 
 
 @app.route("/mannschaft/neu", methods=["GET", "POST"])
@@ -2344,6 +3155,8 @@ def team_edit(tid=None):
                 tid = ex("""INSERT INTO teams (name, discipline, league, season, leader_id, rwk_url, rwk_name, ext_id, rank, max_starts)
                             VALUES (?,?,?,?,?,?,?,?,?,?)""", (f["name"], f["discipline"], f["league"], f["season"],
                                                           leader, f["rwk_url"], f["rwk_name"], f["ext_id"], rank, max_starts))
+            if is_admin and team and "archived_present" in request.form:
+                ex("UPDATE teams SET archived=? WHERE id=?", (1 if request.form.get("archived") else 0, tid))
             if is_admin:
                 conn = db()
                 conn.execute("DELETE FROM team_editors WHERE team_id=?", (tid,))
@@ -2388,7 +3201,7 @@ def team(tid):
     editors = q("""SELECT u.name FROM team_editors e JOIN users u ON u.id=e.user_id
                    WHERE e.team_id=? ORDER BY u.name""", (tid,))
     rwk = rwk_check(t, date.today().isoformat(), [m["id"] for m in members]) if can_manage(t) else {}
-    same_disc = q("SELECT id, name, rank FROM teams WHERE discipline=? ORDER BY name", (t["discipline"],)) if can_manage(t) else []
+    same_disc = q("SELECT id, name, rank FROM teams WHERE discipline=? AND archived=0 ORDER BY name", (t["discipline"],)) if can_manage(t) else []
     return render_template("team.html", t=t, members=members, matches=matches, record=record, rwk=rwk,
                            same_disc=same_disc, season_now=season_of(t, date.today().isoformat()),
                            candidates=candidates, manage=can_manage(t), editors=editors)
@@ -2647,13 +3460,13 @@ def match(mid):
     m = get_match(mid)
     t = get_team(m["team_id"])
     u = current_user()
-    rows = q("""SELECT u.id, u.name, tm.reserve, 0 guest, a.status, l.user_id IS NOT NULL in_lineup, l.rings
+    rows = q("""SELECT u.id, u.name, tm.reserve, 0 guest, a.status, a.auto, l.user_id IS NOT NULL in_lineup, l.rings
                 FROM team_members tm JOIN users u ON u.id=tm.user_id
                 LEFT JOIN availability a ON a.match_id=? AND a.user_id=u.id
                 LEFT JOIN lineup l ON l.match_id=? AND l.user_id=u.id
                 WHERE tm.team_id=? ORDER BY in_lineup DESC, tm.reserve, u.name""", (mid, mid, t["id"]))
     # Aushilfen: aufgestellt, aber nicht Mitglied dieser Mannschaft
-    extra = q("""SELECT u.id, u.name, 0 reserve, 1 guest, a.status, 1 in_lineup, l.rings FROM lineup l
+    extra = q("""SELECT u.id, u.name, 0 reserve, 1 guest, a.status, a.auto, 1 in_lineup, l.rings FROM lineup l
                  JOIN users u ON u.id=l.user_id
                  LEFT JOIN availability a ON a.match_id=l.match_id AND a.user_id=u.id
                  WHERE l.match_id=? AND l.user_id NOT IN (SELECT user_id FROM team_members WHERE team_id=?)
@@ -2704,8 +3517,8 @@ def match_availability(mid):
     status = request.form.get("status")
     if not is_participant(m, u["id"]) or status not in AVAIL:
         abort(403)
-    ex("""INSERT INTO availability (match_id, user_id, status) VALUES (?,?,?)
-          ON CONFLICT(match_id, user_id) DO UPDATE SET status=excluded.status""", (mid, u["id"], status))
+    ex("""INSERT INTO availability (match_id, user_id, status, auto) VALUES (?,?,?,0)
+          ON CONFLICT(match_id, user_id) DO UPDATE SET status=excluded.status, auto=0""", (mid, u["id"], status))
     flash(f"Gespeichert: {AVAIL[status]}", "ok")
     if status == "ja" and not u["cal_token"]:
         session["ics_offer"] = url_for("match_ics", mid=mid)
@@ -2856,6 +3669,13 @@ def match_lineup(mid):
     sync_opp_score(conn, mid)
     conn.commit()
     flash("Aufstellung und Ergebnisse gespeichert.", "ok")
+    new = chosen - set(keep) - {current_user()["id"]}
+    if new and m["date"] >= date.today().isoformat():
+        notify = [r["id"] for r in q(f"SELECT id FROM users WHERE push_lineup=1 AND id IN ({','.join('?' * len(new))})", list(new))]
+        if notify:
+            push_async(notify, "Du bist aufgestellt",
+                       f"{t['name']} {'vs.' if m['home'] else '@'} {m['opponent']} am {push_date(m['date'])}, {m['time']} Uhr",
+                       url_for("match", mid=mid), f"m{mid}")
     bad = {uid: i for uid, i in match_rwk_check(m, t, chosen).items() if i["problems"]}
     if bad:
         names = {r["id"]: r["name"] for r in q(f"SELECT id, name FROM users WHERE id IN ({','.join('?' * len(bad))})", list(bad))}
@@ -3389,6 +4209,10 @@ def club():
         for k in CLUB_FIELDS:
             conn.execute("""INSERT INTO settings (key, value) VALUES (?,?)
                             ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (k, request.form.get(k, "").strip()))
+        if "remind_days" in request.form:
+            days = sorted({int(x) for x in re.findall(r"\d+", request.form.get("remind_days", "")) if 0 < int(x) <= 30}, reverse=True)
+            conn.execute("""INSERT INTO settings (key, value) VALUES ('remind_days', ?)
+                            ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (", ".join(map(str, days)),))
         if "name_order" in request.form:   # nur ändern, wenn das Feld mitgeschickt wurde
             order = request.form.get("name_order") if request.form.get("name_order") in NAME_ORDERS else "nachname"
             conn.execute("""INSERT INTO settings (key, value) VALUES ('name_order', ?)
@@ -3403,11 +4227,11 @@ def club():
     values = {k: setting(k) for k in CLUB_FIELDS}
     values["club_name"] = values["club_name"] or VEREIN_NAME
     values["name_order"] = name_order()
-    counts = q("""SELECT (SELECT COUNT(*) FROM users WHERE active=1) users, (SELECT COUNT(*) FROM teams) teams,
+    counts = q("""SELECT (SELECT COUNT(*) FROM users WHERE active=1) users, (SELECT COUNT(*) FROM teams WHERE archived=0) teams,
                   (SELECT COUNT(*) FROM opp_clubs) opps""", one=True)
     ranges = {k: range_setting(k) for k in RANGE_FIELDS}
     return render_template("club.html", values=values, FIELDS=CLUB_FIELDS, counts=counts, RANGE=RANGE_FIELDS, ranges=ranges,
-                           NAME_ORDERS=NAME_ORDERS)
+                           NAME_ORDERS=NAME_ORDERS, remind_days=setting("remind_days", "5, 2"))
 
 
 # ---------------------------------------------------------------- Gegner (Verein -> Mannschaften -> Schützen)

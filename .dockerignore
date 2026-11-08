@@ -5,3 +5,5 @@ data/
 .git/
 **/__pycache__/
 *.tar.gz
+tests/
+.github/

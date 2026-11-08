@@ -11,5 +11,13 @@
     <label>Passwort<input name="password" type="password" autocomplete="current-password" required></label>
     <button class="btn primary">Anmelden</button>
   </form>
+  {% if passkeys_ok %}
+  <div class="passkey-alt">
+    <button type="button" class="btn" hidden data-passkey-login="{{ url_for('passkey_login') }}"
+            data-options-url="{{ url_for('passkey_login_options') }}" data-next="{{ request.args.get('next', '') }}">🔑 Mit Passkey anmelden</button>
+    <p class="pk-msg flash error" hidden></p>
+  </div>
+  <script src="{{ url_for('static', filename='js/passkey.js') }}"></script>
+  {% endif %}
 </div>
 {% endblock %}

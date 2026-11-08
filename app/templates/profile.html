@@ -31,7 +31,67 @@
     </div>
   </div>
   {% endif %}
+  <p class="small" style="margin:8px 0 0"><a href="{{ url_for('stats') }}">Ausführliche Statistik mit Verlauf ›</a></p>
 </section>
+
+{# ---------- Sicherheit ---------- #}
+<section id="sicherheit">
+  <a class="card link-card" href="{{ url_for('security') }}">
+    <span><b>🛡 Sicherheit &amp; Anmeldung</b><br><span class="muted small">{% if twofa %}Zwei-Faktor-Anmeldung ist eingeschaltet.{% else %}Passkey oder Authenticator-App einrichten – schützt dein Konto.{% endif %}</span></span>
+    <span class="chev" aria-hidden="true">›</span>
+  </a>
+</section>
+
+{# ---------- Abwesenheit ---------- #}
+<section id="abwesenheit">
+  <h2>Abwesenheit</h2>
+  <div class="card stack">
+    <p class="small" style="margin:0">Urlaub oder krank? Trag den Zeitraum ein – alle Wettkämpfe darin werden automatisch abgesagt, auch die, die später noch dazukommen.</p>
+    {% if absences %}
+    <ul class="abs-list">
+      {% for a in absences %}
+      <li>
+        <span><b>{{ a.start|datum }}{% if a.end != a.start %} – {{ a.end|datum }}{% endif %}</b>{% if a.note %} <span class="muted small">· {{ a.note }}</span>{% endif %}</span>
+        <form method="post" action="{{ url_for('absence_delete', aid=a.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="linkbtn small">Löschen</button></form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <form method="post" action="{{ url_for('absence_add') }}" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="row2">
+        <label>Von<input type="date" name="start" min="{{ today }}" required></label>
+        <label>Bis<input type="date" name="end" min="{{ today }}"></label>
+      </div>
+      <label>Notiz <span class="muted small">(optional, sieht der Mannschaftsführer nicht)</span><input name="note" maxlength="100" placeholder="z. B. Urlaub"></label>
+      <button class="btn">Abwesenheit eintragen</button>
+    </form>
+  </div>
+</section>
+
+{# ---------- Benachrichtigungen ---------- #}
+<section id="push">
+  <h2>Benachrichtigungen aufs Handy</h2>
+  <div class="card stack" id="push-box" data-key="{{ push_key }}">
+    <p class="small" style="margin:0">Die App erinnert dich, wenn du bei einem Wettkampf noch nicht zu- oder abgesagt hast, und sagt Bescheid, wenn du aufgestellt wirst. Kostenlos, ohne Telefonnummer oder E-Mail.</p>
+    <p class="strong small" id="push-state" style="margin:0">Wird geprüft …</p>
+    <div class="inline-form">
+      <button type="button" class="btn primary" id="push-on">Auf diesem Gerät einschalten</button>
+      <button type="button" class="btn" id="push-off" hidden>Auf diesem Gerät ausschalten</button>
+    </div>
+    <form method="post" action="{{ url_for('push_test') }}" id="push-test" {{ 'hidden' if not push_devices }}><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn small-btn">Test-Nachricht schicken</button>
+      <span class="muted small">{{ push_devices|length }} Gerät{{ 'e' if push_devices|length != 1 }} angemeldet</span></form>
+    <form method="post" action="{{ url_for('push_prefs') }}" class="stack" style="border-top:1px solid var(--line);padding-top:10px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="check"><input type="checkbox" name="push_remind" value="1" {{ 'checked' if me.push_remind }}> Erinnerung, wenn ich noch nicht geantwortet habe</label>
+      <label class="check"><input type="checkbox" name="push_lineup" value="1" {{ 'checked' if me.push_lineup }}> Nachricht, wenn ich aufgestellt werde</label>
+      <button class="btn small-btn">Speichern</button>
+    </form>
+  </div>
+</section>
+<script src="{{ url_for('static', filename='js/push.js') }}"></script>
 
 {# ---------- Kalender-Abo ---------- #}
 {% set webcal = cal_url|replace('https://', 'webcal://')|replace('http://', 'webcal://') if cal_url else '' %}

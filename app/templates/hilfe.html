@@ -59,6 +59,37 @@
       </ol>
       <p class="tip">Passwort vergessen? Der Admin kann ein neues setzen. Danach wirst du auf allen Geräten abgemeldet.</p>
     </details>
+    <details class="card help" id="hilfe-2fa">
+      <summary>Mit Passkey anmelden (Fingerabdruck, Gesicht, PIN)</summary>
+      <ol>
+        <li>Oben rechts auf deinen Namen → <a href="{{ url_for('security') }}">Sicherheit &amp; Anmeldung</a>.</li>
+        <li>Bei <b>Passkey</b> einen Namen eintippen (z. B. „Mein Handy“) → <b>Passkey einrichten</b> → mit Fingerabdruck, Gesicht oder Handy-PIN bestätigen.</li>
+        <li>Ab jetzt auf der Anmeldeseite einfach <b>🔑 Mit Passkey anmelden</b> tippen – ohne Passwort.</li>
+        <li>Die angezeigten <b>Wiederherstellungscodes</b> aufschreiben. Damit kommst du rein, wenn das Handy weg ist.</li>
+      </ol>
+      <p class="tip">Kein Passkey möglich? Stattdessen eine kostenlose Authenticator-App (z. B. Google Authenticator) einrichten – dann fragt die Anmeldung nach einem 6-stelligen Code. Für Admins ist eins von beiden Pflicht, für alle anderen freiwillig.</p>
+    </details>
+    <details class="card help" id="hilfe-push">
+      <summary>Erinnerungen aufs Handy bekommen</summary>
+      <ol>
+        <li><a href="{{ url_for('profile') }}#push">Profil → Benachrichtigungen aufs Handy</a> → <b>Auf diesem Gerät einschalten</b> → Erlauben.</li>
+        <li><b>Test-Nachricht schicken</b> – kommt sie an, ist alles eingerichtet.</li>
+        <li>Die App erinnert dich vor Wettkämpfen, bei denen du noch nicht geantwortet hast, und meldet, wenn du aufgestellt wirst.</li>
+      </ol>
+      <p class="tip">iPhone: Erst die App zum Home-Bildschirm hinzufügen (Safari → Teilen → „Zum Home-Bildschirm“) und von dort öffnen. Erst dann kann Safari Benachrichtigungen schicken.</p>
+    </details>
+    <details class="card help" id="hilfe-abwesenheit">
+      <summary>Urlaub oder krank: Abwesenheit eintragen</summary>
+      <ol>
+        <li><a href="{{ url_for('profile') }}#abwesenheit">Profil → Abwesenheit</a> → Von und Bis wählen → <b>Abwesenheit eintragen</b>.</li>
+        <li>Alle Wettkämpfe in dem Zeitraum werden automatisch abgesagt, auch die, die erst später angelegt werden. Der Mannschaftsführer sieht „Abwesend“.</li>
+        <li>Löschst du die Abwesenheit, sind diese Termine wieder offen.</li>
+      </ol>
+    </details>
+    <details class="card help">
+      <summary>Meine Statistik</summary>
+      <p>Oben rechts auf deinen Namen → <a href="{{ url_for('stats') }}">Meine Statistik</a>: Schnitt, Bestwert und Verlauf je Disziplin und Saison.</p>
+    </details>
   </div>
 </section>
 
@@ -111,7 +142,20 @@
         <li>Der Mannschaftsführer kann die Mannschaft danach selbst verwalten.</li>
       </ol>
     </details>
+    <details class="card help">
+      <summary>Neue Saison anlegen <span class="pill av-nein">Admin</span></summary>
+      <ol>
+        <li><a href="{{ url_for('teams') }}">Mannschaften</a> → <b>Neue Saison</b>.</li>
+        <li>Saison prüfen (z. B. 2027/28), Mannschaften auswählen → <b>Saison anlegen</b>.</li>
+        <li>Die Mannschaften werden mit Stamm- und Ersatzschützen und Mannschaftsführer übernommen. Die alten stehen mit allen Ergebnissen im Archiv.</li>
+        <li>Danach bei jeder Mannschaft Liga und RWK-Link prüfen und neue Termine importieren.</li>
+      </ol>
+    </details>
     {% endif %}
+    <details class="card help">
+      <summary>Schützen an offene Rückmeldungen erinnern</summary>
+      <p>Auf der Wettkampfseite bei <b>Aufstellung</b> → <b>🔔 Erinnern</b>. Alle ohne Antwort, die Benachrichtigungen eingeschaltet haben, bekommen eine Nachricht aufs Handy. Automatisch erinnert die App außerdem einige Tage vorher (einstellbar unter Verein).</p>
+    </details>
     <details class="card help">
       <summary>Schützen in die Mannschaft holen, Stamm und Ersatz</summary>
       <ol>
@@ -193,6 +237,15 @@
   <h2>Verwaltung <span class="pill av-nein">nur Admin</span></h2>
   <div class="help-list">
     <details class="card help">
+      <summary>Handy verloren: Zwei-Faktor-Anmeldung zurücksetzen</summary>
+      <ol>
+        <li>Bei einem Mitglied: <a href="{{ url_for('users') }}">Benutzer</a> → Mitglied öffnen → <b>Zugang</b> → <b>2FA zurücksetzen</b>.</li>
+        <li>Als Admin selbst ausgesperrt und keine Wiederherstellungscodes mehr? Auf dem Server im App-Ordner:<br>
+          <code>docker compose exec -w /srv/app mannschaften flask --app app reset-2fa BENUTZERNAME</code><br>
+          Danach mit Passwort anmelden und sofort neu einrichten.</li>
+      </ol>
+    </details>
+    <details class="card help">
       <summary>Benutzer anlegen</summary>
       <ol>
         <li><a href="{{ url_for('users') }}">Benutzer</a> → <b>+ Neuer Benutzer</b>.</li>
@@ -229,6 +282,15 @@
 <section id="wartung">
   <h2>Wartung &amp; Server <span class="pill av-nein">nur Admin</span></h2>
   <div class="help-list">
+    <details class="card help" id="ueberwachung">
+      <summary>Meldung bekommen, wenn die App nicht erreichbar ist</summary>
+      <ol>
+        <li>Kostenloses Konto bei <b>UptimeRobot</b> (uptimerobot.com) anlegen. Der Gratis-Tarif reicht: prüft alle 5 Minuten.</li>
+        <li><b>New Monitor</b> → Typ <b>HTTP(s)</b> (oder <b>Keyword</b> mit dem Wort <code>ok</code>) → Adresse:<br><code>{{ request.host_url }}healthz</code></li>
+        <li>Bei „Alert contacts“ deine E-Mail-Adresse eintragen → speichern.</li>
+      </ol>
+      <p class="tip">Die Adresse <code>/healthz</code> antwortet nur mit „ok“, wenn App und Datenbank laufen. Sie verrät nichts über den Verein und braucht keine Anmeldung. Weil UptimeRobot von außen prüft, merkt es auch, wenn der ganze Server oder der Cloudflare-Tunnel ausfällt.</p>
+    </details>
     <details class="card help" open>
       <summary>Die Wartungsseite</summary>
       <p>Alles unter <a href="{{ url_for('admin_maintenance') }}">Wartung</a>. Die Ausgabe läuft live mit; es läuft immer nur ein Auftrag.</p>

@@ -3,6 +3,7 @@
 {% block content %}
 <p><a href="{{ url_for('teams') }}" class="back">← Mannschaften</a></p>
 <h1>{{ t.name }}</h1>
+{% if t.archived %}<div class="flash info">Archiv: Diese Mannschaft gehört zur Saison {{ t.season or '–' }}. Ergebnisse bleiben hier erhalten.</div>{% endif %}
 <div class="muted">{{ t.discipline or '–' }}{% if t.league %} · {{ t.league }}{% endif %} · Saison {{ season_now }}</div>
 <div class="small">Mannschaftsführer: <b>{{ t.leader_name or '–' }}</b>{% if t.ext_id %} · Mannschafts-ID {{ t.ext_id }}{% endif %}{% if editors %} · Bearbeiter: {{ editors|map(attribute='name')|join(', ') }}{% endif %}</div>
 <div class="inline wrap team-tools">

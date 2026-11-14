@@ -243,6 +243,13 @@ Der Admin öffnet den Benutzer, trägt ein neues Passwort ein und speichert. Bei
   ```
   Danach mit Passwort anmelden; die App verlangt sofort eine neue Einrichtung.
 
+## Proxy (Caddy) umschalten
+
+Unter **Wartung → Proxy (Caddy) & Regeln**: kein Caddy (Tunnel direkt auf die App), Caddy hinter dem Cloudflare Tunnel
+(`127.0.0.1:8080`, Tunnel-Ziel dann auf `http://localhost:8080` stellen) oder Caddy mit eigenem HTTPS. Regeln:
+Komprimierung, Upload-Grenze, Wartung nur aus bestimmten Netzen. Der Server schreibt `Caddyfile.local` und `COMPOSE_FILE`
+in der `.env`, lässt Caddy die Datei prüfen und stellt bei einem Fehler die alte Einstellung wieder her (`scripts/proxy.py`).
+
 ## Überwachung (kostenlos)
 
 `https://DEINE-DOMAIN/healthz` antwortet mit `ok`, solange App und Datenbank laufen (ohne Anmeldung, ohne Vereinsdaten).

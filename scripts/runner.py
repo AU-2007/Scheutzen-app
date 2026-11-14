@@ -80,6 +80,13 @@ def build_command(action, param):
         if not (ok_head or ok_up):
             return None, "Diese Version gehört nicht zum Verlauf der App."
         return [os.path.join(APP_DIR, "update.sh"), "--rollback", param], None
+    if action == "proxy":
+        import proxy   # gleiche strenge Prüfung wie im Skript selbst
+        try:
+            proxy.parse(param if isinstance(param, str) else "")
+        except ValueError as e:
+            return None, str(e)
+        return [sys.executable, "-I", sh("proxy.py"), param], None
     if action == "restore":
         if not isinstance(param, str) or not BACKUP_FILE.match(param):
             return None, "Ungültiger Dateiname der Sicherung."

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ t.name }}{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block content %}
 <p><a href="{{ url_for('teams') }}" class="back">← Mannschaften</a></p>
 <h1>{{ t.name }}</h1>

@@ -1,0 +1,27 @@
+# Caddy hinter dem Cloudflare Tunnel: nimmt Anfragen auf 127.0.0.1:8080 an (ohne eigenes HTTPS,
+# das macht Cloudflare) und gibt sie mit den Regeln aus Caddyfile.local an die App weiter.
+# Wird über die Wartungsseite (Proxy) eingeschaltet; der Tunnel muss dann auf http://localhost:8080 zeigen.
+services:
+  caddy:
+    image: caddy:2
+    container_name: schuetzen-caddy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - mannschaften
+
+volumes:
+  caddy_data:
+  caddy_config:

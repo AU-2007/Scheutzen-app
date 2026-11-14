@@ -282,6 +282,16 @@
 <section id="wartung">
   <h2>Wartung &amp; Server <span class="pill av-nein">nur Admin</span></h2>
   <div class="help-list">
+    <details class="card help" id="hilfe-proxy">
+      <summary>Caddy (Proxy) ein- oder ausschalten</summary>
+      <ol>
+        <li><a href="{{ url_for('admin_maintenance') }}#proxy">Wartung → Proxy (Caddy) &amp; Regeln</a>.</li>
+        <li><b>Kein Caddy</b>: der Cloudflare Tunnel geht direkt auf die App. Für die meisten Vereine reicht das.</li>
+        <li><b>Caddy hinter dem Tunnel</b>: wenn du die Regeln brauchst (z. B. Wartung nur aus dem Vereinsnetz). Danach im Cloudflare-Dashboard das Tunnel-Ziel auf <code>http://localhost:8080</code> stellen.</li>
+        <li><b>Caddy mit eigenem HTTPS</b>: nur für einen Server ohne Tunnel.</li>
+      </ol>
+      <p class="tip">Vor dem Umschalten prüft Caddy die Einstellung. Geht etwas schief, stellt der Server die alte Einstellung von selbst wieder her.</p>
+    </details>
     <details class="card help" id="ueberwachung">
       <summary>Meldung bekommen, wenn die App nicht erreichbar ist</summary>
       <ol>

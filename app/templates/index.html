@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_agenda.html" import agenda_days with context %}
 {% block title %}Übersicht{% endblock %}
+{% block main_class %}{{ 'wide' if me.role == 'admin' }}{% endblock %}
 {% block content %}
 <h1>Hallo, {{ me|vorname }}</h1>
 

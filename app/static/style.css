@@ -747,3 +747,29 @@ details.flush-fold table { margin: 0; }
 .archive { margin-top: 18px; }
 @media print { header, nav, .back, form, section:not(#codes), .status-2fa, h1 { display: none !important; } }
 .row2 > label { min-width: 0; } .row2 input[type=date] { width: 100%; min-width: 0; box-sizing: border-box; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.plain legend { padding: 0; margin-bottom: 4px; }
+
+/* ---------- Skalierung: Handy (Standard), Tablet, PC ---------- */
+/* Tablet und größer: Kalender nicht mehr quadratisch, sonst füllt er den ganzen Bildschirm */
+@media (min-width: 640px) {
+  .cal-day { aspect-ratio: auto; height: clamp(44px, 6.5vw, 64px); }
+}
+/* PC: Kopfzeile und Listen-Seiten breiter, Formulare/Texte bleiben lesbar schmal (860px) */
+@media (min-width: 1100px) {
+  .wrap.wide { max-width: 1180px; }
+  body { font-size: 17px; }
+  .sched-cols { display: grid; grid-template-columns: minmax(380px, 440px) 1fr; gap: 24px; align-items: start; }
+  .sched-cal { position: sticky; top: 72px; }
+  .sched-list .filter-bar { margin-top: 12px; }
+  .sched-list > section:first-of-type h2, .sched-list .agenda h2 { margin-top: 1em; }
+  .cal-day { height: 50px; }
+}
+/* Große Bildschirme: etwas mehr Luft */
+@media (min-width: 1600px) {
+  .wrap.wide { max-width: 1320px; }
+}
+/* Touch-Geräte: genug große Tippflächen */
+@media (pointer: coarse) {
+  .btn, .chip-f, .nav a, .cal-nav { min-height: 40px; }
+}

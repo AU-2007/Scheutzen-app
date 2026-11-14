@@ -23,7 +23,7 @@
 {% if me %}
 {% set ep = request.endpoint %}
 <header class="top">
-  <div class="wrap top-inner">
+  <div class="wrap top-inner {{ self.main_class() }}">
     <a class="brand" href="{{ url_for('index') }}"><img class="brand-logo" src="{{ url_for('static', filename='img/icon-192.png') }}" alt="" width="34" height="34">{{ VEREIN }}</a>
     <nav class="nav">
       <a href="{{ url_for('index') }}" class="{{ 'on' if ep=='index' }}">Übersicht</a>
@@ -71,7 +71,7 @@
   </div>
 </header>
 {% endif %}
-<main class="wrap">
+<main class="wrap {% block main_class %}{% endblock %}">
   <div class="flashes" id="flashes">
   {% with msgs = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}

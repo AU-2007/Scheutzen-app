@@ -8,6 +8,8 @@ Zusätzlich kann der Admin pro Mannschaft weitere Bearbeiter eintragen,
 die dieselben Rechte wie der Mannschaftsführer dieser Mannschaft haben.
 """
 import calendar
+import functools
+import hashlib
 import json
 import os
 import re
@@ -126,6 +128,28 @@ app.jinja_env.filters["kategorie"] = lambda d: disc_group(d)[0] or "–"
 STARTED_AT = datetime.now()
 LOG_KEEP_DAYS = 90          # Login- und Fehlerprotokoll so lange aufheben
 MAX_FAILED_LOGINS = 10      # pro IP in 10 Minuten
+# Statische Dateien: Versions-Hash in der Adresse, darum darf der Browser sie ein Jahr behalten.
+# Nach einem Update ändert sich der Hash und die neue Datei wird sofort geladen.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 365 * 24 * 3600
+
+
+@functools.lru_cache(maxsize=None)   # ponytail: Dateien im Container ändern sich nur beim Neubau
+def static_hash(filename):
+    try:
+        with open(os.path.join(app.static_folder, filename), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:10]
+    except OSError:
+        return None
+
+
+@app.url_defaults
+def static_version(endpoint, values):
+    if endpoint == "static" and "filename" in values and "v" not in values:
+        v = static_hash(values["filename"])
+        if v:
+            values["v"] = v
+
+
 if os.environ.get("TRUST_PROXY") == "1":   # hinter Reverse Proxy / Cloudflare: echte Client-IP verwenden
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -481,6 +505,9 @@ def ex(sql, args=()):
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    # WAL: Lesen blockiert nicht, während geschrieben wird (2 Server-Prozesse + Erinnerungs-Thread).
+    # Sicherungen laufen über die Backup-Schnittstelle, restore.sh löscht -wal/-shm. Bleibt in der Datei gespeichert.
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
     for table, col, decl in MIGRATIONS:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
@@ -2374,7 +2401,8 @@ def schedule():
     # Kommend: alle Wettkämpfe, Trainings der nächsten Wochen. Vergangen: neueste zuerst.
     up_items, up_days = agenda(u["id"], today, None, all_teams,
                                tr_from=today, tr_to=today + timedelta(weeks=TRAINING_WEEKS))
-    past_items, past_days = agenda(u["id"], None, today - timedelta(days=1), all_teams,
+    season_start = date(int(season_of(None, today.isoformat())[:4]), 8, 1)   # Saison beginnt im August
+    past_items, past_days = agenda(u["id"], season_start, today - timedelta(days=1), all_teams,
                                    tr_from=today - timedelta(weeks=TRAINING_WEEKS),
                                    tr_to=today - timedelta(days=1), newest_first=True)
     for it in past_items:
@@ -2738,7 +2766,50 @@ JOB_ACTIONS = {
     "reboot":   ("Server neu starten", "Startet den ganzen Server neu (nach 1 Minute). App und Tunnel sind 1 bis 2 Minuten weg und starten von selbst wieder."),
     "rollback": ("Zurückrollen", "Setzt die App auf eine frühere Version zurück."),
     "restore":  ("Sicherung einspielen", "Ersetzt alle Daten durch den Stand der Sicherung."),
+    "proxy":    ("Proxy-Einstellung übernehmen", "Schaltet Caddy ein oder aus und setzt seine Regeln. Die App ist dabei kurz weg."),
 }
+PROXY_MODES = {
+    "aus": ("Kein Caddy", "Cloudflare Tunnel geht direkt auf die App (http://localhost:8000). So läuft es bisher."),
+    "tunnel": ("Caddy hinter dem Cloudflare Tunnel", "Caddy auf http://localhost:8080 setzt die Regeln unten um. "
+               "Danach im Cloudflare-Dashboard beim Tunnel das Ziel auf http://localhost:8080 ändern."),
+    "https": ("Caddy mit eigenem HTTPS", "Für einen Server ohne Tunnel: Caddy holt ein kostenloses Let's-Encrypt-Zertifikat. "
+              "Ports 80 und 443 müssen offen sein und die Domain auf den Server zeigen."),
+}
+PROXY_DEFAULT = {"mode": "aus", "gzip": True, "upload_mb": 20, "wartung_nets": [], "domain": ""}
+
+
+def proxy_param(form, client_ip):
+    """Formular -> Auftragsparameter 'modus|gzip|mb|netze|domain'. Gibt (param, fehler) zurück.
+    Der Wartungsdienst prüft alles noch einmal (scripts/proxy.py)."""
+    import ipaddress
+    mode = form.get("mode", "")
+    if mode not in PROXY_MODES:
+        return None, "Bitte einen Modus wählen."
+    upload = form.get("upload_mb", "20").strip()
+    if not upload.isdigit() or not 1 <= int(upload) <= 100:
+        return None, "Upload-Grenze: 1 bis 100 MB."
+    nets = []
+    for n in re.split(r"[\s,;]+", form.get("wartung_nets", "").strip()):
+        if n:
+            try:
+                nets.append(ipaddress.ip_network(n, strict=False))
+            except ValueError:
+                return None, f"„{n[:40]}“ ist keine IP-Adresse und kein Netz."
+    if len(nets) > 20:
+        return None, "Höchstens 20 Netze."
+    if nets and mode != "aus":   # nicht selbst aussperren
+        try:
+            me_ip = ipaddress.ip_address(client_ip)
+        except ValueError:
+            me_ip = None
+        if not any(me_ip in n for n in nets if me_ip and me_ip.version == n.version):
+            return None, (f"Deine jetzige Adresse {client_ip} ist nicht in der Liste – du würdest dich aus der Wartung "
+                          "aussperren. Bitte mit eintragen.")
+    domain = form.get("domain", "").strip().lower()
+    if mode == "https" and not re.match(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", domain):
+        return None, "Für eigenes HTTPS bitte die Domain angeben, z. B. app.meinverein.de."
+    gz = "1" if form.get("gzip") else "0"
+    return f"{mode}|{gz}|{int(upload)}|{' '.join(str(n) for n in nets)}|{domain if mode == 'https' else ''}", None
 JOB_CONFIRM = {"rollback": "ZURÜCK", "restore": "EINSPIELEN"}
 JOB_STATES = {"queued": "wartet", "running": "läuft", "done": "fertig", "failed": "Fehler"}
 APP_MODULES = ("Flask", "Werkzeug", "Jinja2", "itsdangerous", "MarkupSafe", "click", "blinker", "gunicorn", "Pillow")
@@ -2854,7 +2925,9 @@ def admin_maintenance():
                            warnings=server_warnings(server, maint or None),
                            versions=versions, backups=[b for b in maint.get("backups") or [] if isinstance(b, dict)],
                            vers=module_versions(maint), built=image_built_at(), ACTIONS=JOB_ACTIONS,
-                           CONFIRM=JOB_CONFIRM, STATES=JOB_STATES, runner=os.path.isdir(os.path.join(JOBS_DIR, "queue")))
+                           CONFIRM=JOB_CONFIRM, STATES=JOB_STATES, runner=os.path.isdir(os.path.join(JOBS_DIR, "queue")),
+                           proxy=dict(PROXY_DEFAULT, **(maint.get("proxy") or {})), PROXY_MODES=PROXY_MODES,
+                           client_ip=request.remote_addr or "")
 
 
 @app.route("/admin/wartung/auftrag", methods=["POST"])
@@ -2879,6 +2952,11 @@ def admin_job_create():
         if param not in {b.get("file") for b in maint.get("backups") or [] if isinstance(b, dict)}:
             flash("Diese Sicherung ist nicht in der Liste. Seite neu laden und noch einmal wählen.", "error")
             return redirect(back + "#sicherungen")
+    elif action == "proxy":
+        param, err = proxy_param(request.form, request.remote_addr or "")
+        if err:
+            flash(err, "error")
+            return redirect(back + "#proxy")
     else:
         param = ""
     if action in JOB_CONFIRM and request.form.get("confirm", "").strip().upper() != JOB_CONFIRM[action]:

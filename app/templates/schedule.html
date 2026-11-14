@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_agenda.html" import agenda_days with context %}
 {% block title %}Termine{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block content %}
 {% set qs_alle = '1' if all_teams else '' %}
 <div class="head-row">
@@ -19,6 +20,8 @@
   </div>
 </div>
 
+<div class="sched-cols">
+<div class="sched-cal">
 <div class="card cal">
   <div class="cal-head">
     <a class="cal-nav" href="{{ url_for('schedule', monat=prev_m, alle=qs_alle or None, filter=None if flt == 'alle' else flt) }}" aria-label="Vorheriger Monat">‹</a>
@@ -49,6 +52,8 @@
   </div>
   <div class="cal-legend muted small"><span><em></em> Wettkampf</span><span><em class="mine"></em> du bist aufgestellt</span><span><em class="tr"></em> Training</span></div>
 </div>
+</div>
+<div class="sched-list">
 
 <nav class="filter-bar" aria-label="Termine filtern" id="liste">
   {% for k, label in FILTERS.items() %}
@@ -67,11 +72,14 @@
 {% if past_days %}
 <section>
   <details class="past-list">
-    <summary><h2>Vergangen ({{ n_past }})</h2></summary>
+    <summary><h2>Vergangen in dieser Saison ({{ n_past }})</h2></summary>
     <div class="agenda" style="margin-top:0">{{ agenda_days(past_days, request.full_path, True) }}</div>
+    <p class="muted small">Ältere Ergebnisse: <a href="{{ url_for('stats') }}">Meine Statistik</a> oder Mannschaften → Archiv.</p>
   </details>
 </section>
 {% endif %}
+</div>
+</div>
 <script>
   // Sprung auf einen vergangenen Termin: Liste aufklappen
   (function () {

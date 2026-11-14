@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Wartung{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block content %}
 <p><a href="{{ url_for('index') }}" class="back">← Übersicht</a></p>
 <h1>Wartung</h1>
@@ -156,6 +157,33 @@
     <button class="btn danger" {{ 'disabled' if active }}>Zurückrollen</button>
   </form>
   {% else %}<p class="muted" style="margin:10px 0 0">Noch keine Versionsliste. Erst „Jetzt prüfen“ starten.</p>{% endif %}
+</details>
+
+<details class="card fold" id="proxy">
+  <summary><b>Proxy (Caddy) &amp; Regeln</b><span class="muted small">{{ PROXY_MODES[proxy.mode][0] if proxy.mode in PROXY_MODES else proxy.mode }}{% if proxy.mode != 'aus' and proxy.wartung_nets %} · Wartung gesperrt außer {{ proxy.wartung_nets|length }} Netz{{ 'en' if proxy.wartung_nets|length != 1 }}{% endif %}</span></summary>
+  <form method="post" action="{{ url_for('admin_job_create') }}" class="stack" style="margin-top:10px"
+        onsubmit="return confirm('Proxy-Einstellung übernehmen? Die App ist dabei kurz nicht erreichbar.')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="proxy">
+    <fieldset class="stack plain">
+      <legend class="strong">Wird Caddy gebraucht?</legend>
+      {% for k, (label, help) in PROXY_MODES.items() %}
+      <label class="check"><input type="radio" name="mode" value="{{ k }}" {{ 'checked' if proxy.mode == k }}>
+        <span><b>{{ label }}</b><br><span class="muted small">{{ help }}</span></span></label>
+      {% endfor %}
+    </fieldset>
+    <fieldset class="stack plain">
+      <legend class="strong">Regeln <span class="muted small">(nur wenn Caddy an ist)</span></legend>
+      <label class="check"><input type="checkbox" name="gzip" value="1" {{ 'checked' if proxy.gzip }}> Seiten komprimiert ausliefern (schneller am Handy)</label>
+      <label>Größte erlaubte Anfrage (Uploads, Importe) in MB<input type="number" name="upload_mb" min="1" max="100" value="{{ proxy.upload_mb }}" inputmode="numeric"></label>
+      <label>Wartungsseite nur aus diesen Netzen <span class="muted small">(leer = von überall, mit Anmeldung + 2FA)</span>
+        <textarea name="wartung_nets" rows="2" placeholder="z. B. 192.168.10.0/24 2003:abcd::/48">{{ proxy.wartung_nets|join(' ') }}</textarea></label>
+      <p class="small muted" style="margin:0">Deine Adresse gerade: <code>{{ client_ip }}</code> – muss mit drin sein. Zu Hause ändert sich die IP oft; dann besser das ganze Netz (z. B. /24 bzw. /56 bei IPv6) eintragen.</p>
+      <label>Domain <span class="muted small">(nur für eigenes HTTPS)</span><input name="domain" value="{{ proxy.domain }}" placeholder="app.meinverein.de" autocapitalize="none"></label>
+    </fieldset>
+    <button class="btn primary" {{ 'disabled' if active or not runner }}>Übernehmen</button>
+    {% if not maint.proxy %}<p class="small muted" style="margin:0">Noch nie über die App eingestellt. Wurde Caddy von Hand per <code>.env</code> eingerichtet, gilt das hier erst nach dem Übernehmen.</p>{% endif %}
+  </form>
 </details>
 
 <details class="card fold" id="server">

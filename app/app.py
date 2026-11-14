@@ -150,6 +150,12 @@ def static_version(endpoint, values):
             values["v"] = v
 
 
+# Nur diese Host-Namen annehmen (setzt die Wartung bei Caddy "direkt"): Aufrufe per IP oder fremdem Namen -> 400.
+# localhost/127.0.0.1 bleiben für den Docker-Healthcheck erlaubt. "*.verein.de" wird zu ".verein.de" (Flask-Schreibweise).
+if os.environ.get("ALLOWED_HOSTS", "").strip():
+    app.config["TRUSTED_HOSTS"] = ["localhost", "127.0.0.1"] + [
+        h[1:] if h.startswith("*.") else h for h in os.environ["ALLOWED_HOSTS"].lower().split()]
+
 if os.environ.get("TRUST_PROXY") == "1":   # hinter Reverse Proxy / Cloudflare: echte Client-IP verwenden
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -3057,6 +3063,11 @@ def server_warnings(server, maint):
                         "TRUST_PROXY=1 und COOKIE_SECURE=1 setzen. Sonst einen Reverse Proxy mit HTTPS einrichten.")
     elif not server["cookie_secure"]:
         warnings.append("HTTPS ist aktiv, aber COOKIE_SECURE=1 ist in der .env noch nicht gesetzt.")
+    bind = os.environ.get("BIND_IP", "0.0.0.0")
+    if bind not in ("127.0.0.1", "::1", "localhost"):
+        warnings.append(f"Der App-Port 8000 ist auf {bind or 'allen Netzwerkkarten'} geöffnet (BIND_IP). Wer die Server-IP kennt, "
+                        "kommt dort ohne HTTPS dran – Docker umgeht dabei die Firewall. Wenn Tunnel oder Caddy auf demselben "
+                        "Server laufen: in der .env BIND_IP=127.0.0.1 setzen (Caddy „direkt“ macht das automatisch).")
     if server["disk_pct"] >= 90:
         warnings.append(f"Der Speicher ist zu {server['disk_pct']} % voll.")
     if q("SELECT 1 FROM users WHERE role='admin' AND must_change_pw=1", one=True):
@@ -4888,6 +4899,9 @@ def notfound(_e):
 
 @app.errorhandler(400)
 def badreq(e):
+    from werkzeug.exceptions import SecurityError
+    if isinstance(e, SecurityError):   # fremder Host-Name (ALLOWED_HOSTS): ohne Seite, die Links bräuchte
+        return "Bitte die App über ihre Adresse aufrufen.", 400, {"Content-Type": "text/plain; charset=utf-8"}
     return render_template("error.html", code=400, msg=getattr(e, "description", "Ungültige Anfrage.")), 400
 
 

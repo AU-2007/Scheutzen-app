@@ -92,10 +92,14 @@ def caddyfile(cfg):
     if tunnel:   # cloudflared kommt über die Docker-Bridge (privates Netz); echte IP steht in CF-Connecting-IP
         out += ["\tservers {", "\t\ttrusted_proxies static private_ranges", "\t\tclient_ip_headers CF-Connecting-IP X-Forwarded-For",
                 "\t}", "\tauto_https off"]
-    elif cfg["email"] and cfg["tls"] == "auto":
-        out.append(f"\temail {cfg['email']}")
+    else:   # Host-Angabe muss zur Domain im Zertifikat passen (sonst 421)
+        out += ["\tservers {", "\t\tstrict_sni_host on", "\t}"]
+        if cfg["email"] and cfg["tls"] == "auto":
+            out.append(f"\temail {cfg['email']}")
     out += ["}", ""]
     out.append((":8080" if tunnel else ", ".join(cfg["domains"])) + " {")
+    if not tunnel:   # nur die eingetragenen Domains: Aufrufe per IP oder fremdem Namen werden abgebrochen
+        out += ["\t@fremd not host " + " ".join(cfg["domains"]), "\tabort @fremd"]
     if not tunnel and cfg["tls"] == "eigen":
         out.append("\ttls /certs/cert.pem /certs/key.pem")
     elif not tunnel and cfg["tls"] == "intern":
@@ -112,6 +116,8 @@ def caddyfile(cfg):
     if not tunnel:
         out.append('\theader Strict-Transport-Security "max-age=31536000"')
     out += ["}", ""]
+    if not tunnel:   # Port 80: eingetragene Domains leitet Caddy auf HTTPS um, alles andere (z. B. die IP) wird abgebrochen
+        out += ["http:// {", "\tabort", "}", ""]
     return "\n".join(out)
 
 
@@ -223,6 +229,11 @@ def main(param):
         changes["TRUST_PROXY"] = "1"          # App muss X-Forwarded-* von Caddy übernehmen
     if cfg["mode"] == "direkt":
         changes["DOMAIN"] = cfg["domains"][0]
+        changes["BIND_IP"] = "127.0.0.1"       # App-Port nicht mehr von außen (Docker umgeht sonst die Firewall)
+        changes["ALLOWED_HOSTS"] = " ".join(cfg["domains"])   # App nimmt nur noch diese Namen an
+        changes["COOKIE_SECURE"] = "1"
+    else:
+        changes["ALLOWED_HOSTS"] = None        # Tunnel/aus: Host-Prüfung macht Cloudflare
     print(f"Caddy: {'an' if cfg['on'] else 'aus'} · Weg: {'Cloudflare Tunnel' if cfg['via'] == 'tunnel' else 'direkt'}"
           f" · Domains: {' '.join(cfg['domains']) or '–'} · Zertifikat: {cfg['tls']}"
           f" · Komprimierung: {'an' if cfg['gzip'] else 'aus'} · Upload bis {cfg['upload_mb']} MB"

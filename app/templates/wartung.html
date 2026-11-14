@@ -185,7 +185,7 @@
       <label class="check"><input type="radio" name="via" value="tunnel" {{ 'checked' if proxy.via == 'tunnel' }}>
         <span><b>Über den Cloudflare Tunnel</b><br><span class="muted small">Cloudflare macht HTTPS. Caddy läuft auf http://localhost:8080 – im Cloudflare-Dashboard das Tunnel-Ziel dorthin stellen.</span></span></label>
       <label class="check"><input type="radio" name="via" value="direkt" {{ 'checked' if proxy.via == 'direkt' }}>
-        <span><b>Direkt aus dem Internet</b><br><span class="muted small">Server ohne Tunnel: Caddy auf Port 80/443 mit eigenem Zertifikat.</span></span></label>
+        <span><b>Direkt aus dem Internet</b><br><span class="muted small">Server ohne Tunnel: Caddy auf Port 80/443 mit Zertifikat. Erreichbar nur noch über HTTPS und die eingetragenen Domains – Aufrufe per IP werden abgelehnt, der App-Port 8000 ist dann nur noch auf dem Server selbst offen.</span></span></label>
     </fieldset>
 
     <fieldset class="stack plain nur-direkt">

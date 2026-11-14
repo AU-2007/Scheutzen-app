@@ -249,7 +249,9 @@ Unter **Wartung → Caddy (Proxy)**: Caddy an/aus, Weg (Cloudflare Tunnel → Ca
 Internet auf 80/443), Domains, Zertifikat (Let's Encrypt automatisch, eigenes PEM z. B. Cloudflare-Origin, oder selbst
 signiert), Regeln (Komprimierung, Upload-Grenze, Wartung nur aus bestimmten Netzen), „Caddy ausschalten“ und „Standardwerte“.
 Der Server (`scripts/proxy.py`) schreibt `Caddyfile.local`, `caddy-certs/` und `COMPOSE_FILE` in der `.env`, lässt Caddy die
-Datei prüfen und stellt bei einem Fehler alles wieder her. Den Zertifikatsstatus fragt „Auf Updates prüfen“ regelmäßig neu ab.
+Datei prüfen und stellt bei einem Fehler alles wieder her. Im Modus „direkt“ ist die App nur über HTTPS und die eingetragenen
+Domains erreichbar: Caddy bricht Aufrufe per IP ab (`http://`-Catch-all mit `abort`, `strict_sni_host`, Host-Prüfung), die App
+lauscht nur noch auf `127.0.0.1:8000` (`BIND_IP`) und nimmt nur die Domains an (`ALLOWED_HOSTS`). Den Zertifikatsstatus fragt „Auf Updates prüfen“ regelmäßig neu ab.
 
 ## Überwachung (kostenlos)
 

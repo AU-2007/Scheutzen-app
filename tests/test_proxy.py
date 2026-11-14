@@ -158,4 +158,31 @@ def job(**form):
 check(job(on="1", via="tunnel", upload_mb="20", gzip="1", tls="auto") == "1|tunnel|1|20|||auto|", "job queued")
 check(job(on="1", via="tunnel", upload_mb="30", tls="auto", quick="aus") == "0|tunnel|0|30|||auto|", "quick off keeps rest")
 check(job(quick="standard") == A.PROXY_DEFAULT_PARAM, "reset to defaults")
+
+# ---- App nimmt bei ALLOWED_HOSTS nur die Domains an (eigener Prozess, weil beim Start gelesen)
+code = """
+import os, sys, io, contextlib, tempfile
+os.environ.update(DB_PATH=tempfile.mkdtemp() + '/t.db', ADMIN_PASSWORD='adminpass1', ALLOWED_HOSTS='app.de *.verein.de', TRUST_PROXY='1')
+sys.path.insert(0, sys.argv[1])
+with contextlib.redirect_stdout(io.StringIO()):
+    import app as A
+c = A.app.test_client()
+for h in ('app.de', 'x.verein.de', '127.0.0.1:8000', 'localhost', '203.0.113.5', '203.0.113.5:8000', 'evil.de'):
+    print(h, c.get('/healthz', headers={'Host': h}).status_code)
+print('fwd', c.get('/healthz', headers={'Host': '127.0.0.1:8000', 'X-Forwarded-Host': '203.0.113.5'}).status_code)
+"""
+r = subprocess.run([sys.executable, "-c", code, os.path.join(ROOT, "app")], capture_output=True, text=True)
+res = dict(l.rsplit(" ", 1) for l in r.stdout.split("\n") if l)
+check(res.get("app.de") == "200" and res.get("x.verein.de") == "200" and res.get("127.0.0.1:8000") == "200"
+      and res.get("localhost") == "200", r.stdout + r.stderr[-800:])
+check(res.get("203.0.113.5") == "400" and res.get("203.0.113.5:8000") == "400" and res.get("evil.de") == "400"
+      and res.get("fwd") == "400", r.stdout)
+d, r, calls = run_flow("1|direkt|1|20||app.de *.verein.de|intern|")
+env = rd(d, ".env")
+check("BIND_IP=127.0.0.1" in env and "ALLOWED_HOSTS=app.de *.verein.de" in env and "COOKIE_SECURE=1" in env, env)
+d, r, calls = run_flow("1|tunnel|1|20|||auto|", keep=d)
+check("ALLOWED_HOSTS" not in rd(d, ".env") and "BIND_IP=127.0.0.1" in rd(d, ".env"), "tunnel drops host list, keeps local bind")
+cf = P.caddyfile(P.parse("1|direkt|1|20||app.de *.verein.de|intern|"))
+check("strict_sni_host on" in cf and "@fremd not host app.de *.verein.de" in cf and "http:// {\n\tabort\n}" in cf, cf)
+check("strict_sni_host" not in P.caddyfile(P.parse("1|tunnel|1|20|||auto|")), "tunnel unaffected")
 print("PROXY OK", ok)

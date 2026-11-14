@@ -287,7 +287,7 @@
       <ol>
         <li><a href="{{ url_for('admin_maintenance') }}#proxy">Wartung → Caddy (Proxy)</a>. Ohne Haken bei <b>Caddy benutzen</b> geht der Tunnel direkt auf die App – für die meisten Vereine reicht das.</li>
         <li><b>Über den Cloudflare Tunnel</b>: Cloudflare macht HTTPS, Caddy setzt nur die Regeln um. Danach im Cloudflare-Dashboard das Tunnel-Ziel auf <code>http://localhost:8080</code> stellen.</li>
-        <li><b>Direkt aus dem Internet</b> (Server ohne Tunnel): Domains eintragen und das Zertifikat wählen – <b>automatisch</b> (Let's Encrypt, kostenlos), <b>eigenes</b> (z. B. Cloudflare-Origin-Zertifikat einfügen) oder <b>selbst signiert</b> zum Testen.</li>
+        <li><b>Direkt aus dem Internet</b> (Server ohne Tunnel): Domains eintragen und das Zertifikat wählen – <b>automatisch</b> (Let's Encrypt, kostenlos), <b>eigenes</b> (z. B. Cloudflare-Origin-Zertifikat einfügen) oder <b>selbst signiert</b> zum Testen. Danach kommt man nur noch über <code>https://</code> und diese Domains auf die App – Aufrufe per IP-Adresse oder über Port 8000 werden abgelehnt, auch wenn die Ports in der Firewall offen sind.</li>
         <li><b>Übernehmen</b>. Oben in dem Bereich steht danach, bis wann das Zertifikat gilt.</li>
         <li><b>Caddy ausschalten</b> behält alle Einstellungen, <b>Standardwerte</b> setzt alles zurück und schaltet Caddy aus.</li>
       </ol>

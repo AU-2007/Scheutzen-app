@@ -75,3 +75,5 @@ update_json(path, data)
 print(f"{len(pkgs)} Paket-Updates ({sum(p['security'] for p in pkgs)} Sicherheit), App {behind} Version(en) zurück.")
 PY
 snapshot
+# Zertifikat des Caddy-Proxys (falls über die Wartungsseite eingerichtet) prüfen
+python3 -I "$APP_DIR/scripts/proxy.py" --status >/dev/null 2>&1 || true

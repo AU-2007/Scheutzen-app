@@ -773,3 +773,10 @@ fieldset.plain legend { padding: 0; margin-bottom: 4px; }
 @media (pointer: coarse) {
   .btn, .chip-f, .nav a, .cal-nav { min-height: 40px; }
 }
+/* Caddy-Formular: Felder, die gerade nicht gelten, ausblenden (ohne JavaScript) */
+.proxy-form:has(input[name=via][value=tunnel]:checked) .nur-direkt { display: none; }
+.proxy-form:has(input[name=tls][value=auto]:not(:checked)) .nur-auto { display: none; }
+.proxy-form:has(input[name=tls][value=eigen]:not(:checked)) .nur-eigen { display: none; }
+.proxy-form:has(input[name=on]:not(:checked)) fieldset { opacity: .55; }
+.cert-box { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--ok-soft); }
+.cert-box.warn { background: var(--warn-soft, #fff4d6); }

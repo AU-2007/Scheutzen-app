@@ -13,6 +13,7 @@ services:
       - DOMAIN=${DOMAIN:?DOMAIN in der .env setzen}
     volumes:
       - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ./caddy-certs:/certs:ro            # eigenes Zertifikat (über die Wartungsseite hochgeladen)
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

@@ -12,3 +12,4 @@ __pycache__/
 Caddyfile.local
 .Caddyfile.local.neu
 .env.neu
+caddy-certs/

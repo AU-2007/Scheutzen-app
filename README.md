@@ -243,12 +243,13 @@ Der Admin öffnet den Benutzer, trägt ein neues Passwort ein und speichert. Bei
   ```
   Danach mit Passwort anmelden; die App verlangt sofort eine neue Einrichtung.
 
-## Proxy (Caddy) umschalten
+## Caddy (Proxy) über die App einrichten
 
-Unter **Wartung → Proxy (Caddy) & Regeln**: kein Caddy (Tunnel direkt auf die App), Caddy hinter dem Cloudflare Tunnel
-(`127.0.0.1:8080`, Tunnel-Ziel dann auf `http://localhost:8080` stellen) oder Caddy mit eigenem HTTPS. Regeln:
-Komprimierung, Upload-Grenze, Wartung nur aus bestimmten Netzen. Der Server schreibt `Caddyfile.local` und `COMPOSE_FILE`
-in der `.env`, lässt Caddy die Datei prüfen und stellt bei einem Fehler die alte Einstellung wieder her (`scripts/proxy.py`).
+Unter **Wartung → Caddy (Proxy)**: Caddy an/aus, Weg (Cloudflare Tunnel → Caddy auf `127.0.0.1:8080`, oder direkt aus dem
+Internet auf 80/443), Domains, Zertifikat (Let's Encrypt automatisch, eigenes PEM z. B. Cloudflare-Origin, oder selbst
+signiert), Regeln (Komprimierung, Upload-Grenze, Wartung nur aus bestimmten Netzen), „Caddy ausschalten“ und „Standardwerte“.
+Der Server (`scripts/proxy.py`) schreibt `Caddyfile.local`, `caddy-certs/` und `COMPOSE_FILE` in der `.env`, lässt Caddy die
+Datei prüfen und stellt bei einem Fehler alles wieder her. Den Zertifikatsstatus fragt „Auf Updates prüfen“ regelmäßig neu ab.
 
 ## Überwachung (kostenlos)
 

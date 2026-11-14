@@ -160,28 +160,65 @@
 </details>
 
 <details class="card fold" id="proxy">
-  <summary><b>Proxy (Caddy) &amp; Regeln</b><span class="muted small">{{ PROXY_MODES[proxy.mode][0] if proxy.mode in PROXY_MODES else proxy.mode }}{% if proxy.mode != 'aus' and proxy.wartung_nets %} · Wartung gesperrt außer {{ proxy.wartung_nets|length }} Netz{{ 'en' if proxy.wartung_nets|length != 1 }}{% endif %}</span></summary>
-  <form method="post" action="{{ url_for('admin_job_create') }}" class="stack" style="margin-top:10px"
-        onsubmit="return confirm('Proxy-Einstellung übernehmen? Die App ist dabei kurz nicht erreichbar.')">
+  <summary><b>Caddy (Proxy)</b><span class="muted small">{% if not proxy.on %}aus{% else %}an · {{ 'hinter Cloudflare Tunnel' if proxy.via == 'tunnel' else 'eigenes HTTPS' }}{% endif %}{% if proxy_cert and proxy_cert.until %} · Zertifikat bis {{ proxy_cert.until|datum }}{% endif %}</span></summary>
+  {% if proxy.on and proxy.via == 'direkt' %}
+  <div class="cert-box {{ 'warn' if not proxy_cert or proxy_cert.error or not proxy_cert.until }}">
+    {% if proxy_cert and proxy_cert.until %}
+      <b>🔒 Zertifikat für {{ proxy_cert.domain }}</b><br>
+      <span class="small">Von {{ proxy_cert.issuer or '?' }}, gültig bis <b>{{ proxy_cert.until|datum }}</b>
+      {% if proxy_cert.trusted %}· öffentlich vertrauenswürdig{% else %}· <span class="bad-text">nicht öffentlich vertrauenswürdig</span>{% if proxy.tls != 'auto' %} (bei {{ PROXY_TLS[proxy.tls][0] }} normal){% endif %}{% endif %}
+      <span class="muted">· geprüft {{ proxy_cert.checked|seit }}</span></span>
+    {% else %}
+      <b>Noch kein Zertifikat abrufbar.</b> <span class="small">{{ proxy_cert.error if proxy_cert and proxy_cert.error }} Domain muss auf diesen Server zeigen, Ports 80/443 offen. „Auf Updates prüfen“ fragt neu ab.</span>
+    {% endif %}
+  </div>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin_job_create') }}" class="stack proxy-form" style="margin-top:10px"
+        onsubmit="return (event.submitter && event.submitter.value === 'standard') || confirm('Caddy-Einstellung übernehmen? Die App ist dabei kurz nicht erreichbar.')">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="proxy">
+    <label class="check strong"><input type="checkbox" name="on" value="1" {{ 'checked' if proxy.on }}> Caddy benutzen</label>
+    <p class="small muted" style="margin:-6px 0 0">Ohne Caddy geht der Tunnel direkt auf die App (http://localhost:8000). Für die meisten Vereine reicht das.</p>
+
     <fieldset class="stack plain">
-      <legend class="strong">Wird Caddy gebraucht?</legend>
-      {% for k, (label, help) in PROXY_MODES.items() %}
-      <label class="check"><input type="radio" name="mode" value="{{ k }}" {{ 'checked' if proxy.mode == k }}>
+      <legend class="strong">Wie kommen die Anfragen an?</legend>
+      <label class="check"><input type="radio" name="via" value="tunnel" {{ 'checked' if proxy.via == 'tunnel' }}>
+        <span><b>Über den Cloudflare Tunnel</b><br><span class="muted small">Cloudflare macht HTTPS. Caddy läuft auf http://localhost:8080 – im Cloudflare-Dashboard das Tunnel-Ziel dorthin stellen.</span></span></label>
+      <label class="check"><input type="radio" name="via" value="direkt" {{ 'checked' if proxy.via == 'direkt' }}>
+        <span><b>Direkt aus dem Internet</b><br><span class="muted small">Server ohne Tunnel: Caddy auf Port 80/443 mit eigenem Zertifikat.</span></span></label>
+    </fieldset>
+
+    <fieldset class="stack plain nur-direkt">
+      <legend class="strong">Domains &amp; Zertifikat <span class="muted small">(nur „direkt“)</span></legend>
+      <label>Domains <span class="muted small">(eine pro Zeile, die erste ist die Hauptadresse)</span>
+        <textarea name="domains" rows="2" autocapitalize="none" placeholder="app.meinverein.de">{{ proxy.domains|join('\n') }}</textarea></label>
+      {% for k, (label, help) in PROXY_TLS.items() %}
+      <label class="check"><input type="radio" name="tls" value="{{ k }}" {{ 'checked' if proxy.tls == k }}>
         <span><b>{{ label }}</b><br><span class="muted small">{{ help }}</span></span></label>
       {% endfor %}
+      <label class="nur-auto">E-Mail für Ablauf-Warnungen <span class="muted small">(optional)</span><input type="email" name="email" value="{{ proxy.email }}" placeholder="admin@meinverein.de"></label>
+      <details class="small nur-eigen" {{ 'open' if proxy.tls == 'eigen' }}><summary>Eigenes Zertifikat einfügen{% if proxy.tls == 'eigen' %} (leer lassen = bisheriges behalten){% endif %}</summary>
+        <label>Zertifikat (PEM)<textarea name="cert_pem" rows="4" class="mono" placeholder="-----BEGIN CERTIFICATE-----"></textarea></label>
+        <label>Privater Schlüssel (PEM)<textarea name="key_pem" rows="4" class="mono" placeholder="-----BEGIN PRIVATE KEY-----"></textarea></label>
+        <p class="muted" style="margin:0">Der Schlüssel wird nur an den Server übergeben und danach aus dem Datenordner gelöscht.</p>
+      </details>
     </fieldset>
+
     <fieldset class="stack plain">
-      <legend class="strong">Regeln <span class="muted small">(nur wenn Caddy an ist)</span></legend>
+      <legend class="strong">Regeln</legend>
       <label class="check"><input type="checkbox" name="gzip" value="1" {{ 'checked' if proxy.gzip }}> Seiten komprimiert ausliefern (schneller am Handy)</label>
       <label>Größte erlaubte Anfrage (Uploads, Importe) in MB<input type="number" name="upload_mb" min="1" max="100" value="{{ proxy.upload_mb }}" inputmode="numeric"></label>
       <label>Wartungsseite nur aus diesen Netzen <span class="muted small">(leer = von überall, mit Anmeldung + 2FA)</span>
         <textarea name="wartung_nets" rows="2" placeholder="z. B. 192.168.10.0/24 2003:abcd::/48">{{ proxy.wartung_nets|join(' ') }}</textarea></label>
-      <p class="small muted" style="margin:0">Deine Adresse gerade: <code>{{ client_ip }}</code> – muss mit drin sein. Zu Hause ändert sich die IP oft; dann besser das ganze Netz (z. B. /24 bzw. /56 bei IPv6) eintragen.</p>
-      <label>Domain <span class="muted small">(nur für eigenes HTTPS)</span><input name="domain" value="{{ proxy.domain }}" placeholder="app.meinverein.de" autocapitalize="none"></label>
+      <p class="small muted" style="margin:0">Deine Adresse gerade: <code>{{ client_ip }}</code> – muss mit drin sein. Zu Hause ändert sich die IP oft; dann besser das ganze Netz eintragen.</p>
     </fieldset>
-    <button class="btn primary" {{ 'disabled' if active or not runner }}>Übernehmen</button>
+
+    <div class="inline wrap">
+      <button class="btn primary" {{ 'disabled' if active or not runner }}>Übernehmen</button>
+      {% if proxy.on %}<button class="btn" name="quick" value="aus" {{ 'disabled' if active or not runner }}>Caddy ausschalten</button>{% endif %}
+      <button class="btn" name="quick" value="standard" formnovalidate {{ 'disabled' if active or not runner }}
+              onclick="return confirm('Alle Caddy-Einstellungen auf Standard zurücksetzen und Caddy ausschalten?')">Standardwerte</button>
+    </div>
     {% if not maint.proxy %}<p class="small muted" style="margin:0">Noch nie über die App eingestellt. Wurde Caddy von Hand per <code>.env</code> eingerichtet, gilt das hier erst nach dem Übernehmen.</p>{% endif %}
   </form>
 </details>

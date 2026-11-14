@@ -2766,25 +2766,26 @@ JOB_ACTIONS = {
     "reboot":   ("Server neu starten", "Startet den ganzen Server neu (nach 1 Minute). App und Tunnel sind 1 bis 2 Minuten weg und starten von selbst wieder."),
     "rollback": ("Zurückrollen", "Setzt die App auf eine frühere Version zurück."),
     "restore":  ("Sicherung einspielen", "Ersetzt alle Daten durch den Stand der Sicherung."),
-    "proxy":    ("Proxy-Einstellung übernehmen", "Schaltet Caddy ein oder aus und setzt seine Regeln. Die App ist dabei kurz weg."),
+    "proxy":    ("Caddy einrichten", "Schaltet Caddy ein oder aus, setzt Domains, Zertifikat und Regeln. Die App ist dabei kurz weg."),
 }
-PROXY_MODES = {
-    "aus": ("Kein Caddy", "Cloudflare Tunnel geht direkt auf die App (http://localhost:8000). So läuft es bisher."),
-    "tunnel": ("Caddy hinter dem Cloudflare Tunnel", "Caddy auf http://localhost:8080 setzt die Regeln unten um. "
-               "Danach im Cloudflare-Dashboard beim Tunnel das Ziel auf http://localhost:8080 ändern."),
-    "https": ("Caddy mit eigenem HTTPS", "Für einen Server ohne Tunnel: Caddy holt ein kostenloses Let's-Encrypt-Zertifikat. "
-              "Ports 80 und 443 müssen offen sein und die Domain auf den Server zeigen."),
-}
-PROXY_DEFAULT = {"mode": "aus", "gzip": True, "upload_mb": 20, "wartung_nets": [], "domain": ""}
+PROXY_TLS = {"auto": ("Automatisch (Let's Encrypt)", "Kostenlos, Caddy holt und verlängert es selbst. Domain muss auf den Server zeigen, Ports 80/443 offen."),
+             "eigen": ("Eigenes Zertifikat", "Z. B. das kostenlose Origin-Zertifikat aus dem Cloudflare-Dashboard (SSL/TLS → Origin Server)."),
+             "intern": ("Selbst signiert", "Nur zum Testen oder im Vereinsnetz – Browser zeigen eine Warnung.")}
+PROXY_DEFAULT = {"on": False, "via": "tunnel", "gzip": True, "upload_mb": 20, "wartung_nets": [], "domains": [],
+                 "tls": "auto", "email": ""}
+PROXY_DEFAULT_PARAM = "0|tunnel|1|20|||auto|"
+PEM_CERT_RE = re.compile(r"-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----")
+PEM_KEY_RE = re.compile(r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[A-Za-z0-9+/=\s]+-----END (?:RSA |EC )?PRIVATE KEY-----")
 
 
 def proxy_param(form, client_ip):
-    """Formular -> Auftragsparameter 'modus|gzip|mb|netze|domain'. Gibt (param, fehler) zurück.
+    """Formular -> Auftragsparameter 'an|weg|kompr|mb|netze|domains|zertifikat|email'. Gibt (param, fehler) zurück.
     Der Wartungsdienst prüft alles noch einmal (scripts/proxy.py)."""
     import ipaddress
-    mode = form.get("mode", "")
-    if mode not in PROXY_MODES:
-        return None, "Bitte einen Modus wählen."
+    on = "1" if form.get("on") else "0"
+    via = form.get("via", "")
+    if via not in ("tunnel", "direkt"):
+        return None, "Bitte wählen, ob der Cloudflare Tunnel genutzt wird."
     upload = form.get("upload_mb", "20").strip()
     if not upload.isdigit() or not 1 <= int(upload) <= 100:
         return None, "Upload-Grenze: 1 bis 100 MB."
@@ -2797,7 +2798,7 @@ def proxy_param(form, client_ip):
                 return None, f"„{n[:40]}“ ist keine IP-Adresse und kein Netz."
     if len(nets) > 20:
         return None, "Höchstens 20 Netze."
-    if nets and mode != "aus":   # nicht selbst aussperren
+    if nets and on == "1":   # nicht selbst aussperren
         try:
             me_ip = ipaddress.ip_address(client_ip)
         except ValueError:
@@ -2805,11 +2806,39 @@ def proxy_param(form, client_ip):
         if not any(me_ip in n for n in nets if me_ip and me_ip.version == n.version):
             return None, (f"Deine jetzige Adresse {client_ip} ist nicht in der Liste – du würdest dich aus der Wartung "
                           "aussperren. Bitte mit eintragen.")
-    domain = form.get("domain", "").strip().lower()
-    if mode == "https" and not re.match(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", domain):
-        return None, "Für eigenes HTTPS bitte die Domain angeben, z. B. app.meinverein.de."
+    domains = []
+    for d in re.split(r"[\s,;]+", form.get("domains", "").strip().lower()):
+        d = re.sub(r"^https?://", "", d).rstrip("/")
+        if d and d not in domains:
+            if not re.match(r"^(?=.{4,253}$)(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", d):
+                return None, f"„{d[:60]}“ ist keine gültige Domain (z. B. app.meinverein.de)."
+            domains.append(d)
+    if len(domains) > 10:
+        return None, "Höchstens 10 Domains."
+    if on == "1" and via == "direkt" and not domains:
+        return None, "Ohne Tunnel braucht Caddy mindestens eine Domain."
+    tls = form.get("tls", "auto")
+    if tls not in PROXY_TLS:
+        return None, "Bitte eine Zertifikatsart wählen."
+    if on == "1" and via == "direkt" and tls == "auto" and any(d.startswith("*.") for d in domains):
+        return None, "Platzhalter-Domains (*.) gehen nicht mit automatischem Zertifikat."
+    email = form.get("email", "").strip()
+    if email and not re.match(r"^[A-Za-z0-9._%+-]{1,64}@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$", email):
+        return None, "Die E-Mail-Adresse ist ungültig."
+    cert, key = form.get("cert_pem", "").strip(), form.get("key_pem", "").strip()
+    if cert or key:
+        if not PEM_CERT_RE.search(cert) or not PEM_KEY_RE.search(key) or len(cert) > 50000 or len(key) > 20000:
+            return None, "Zertifikat und privater Schlüssel müssen beide im PEM-Format eingefügt werden (-----BEGIN …)."
+        d = os.path.join(os.path.dirname(DB_PATH), "proxy")
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        for name, text in (("cert.pem", cert), ("key.pem", key)):
+            tmp = os.path.join(d, f".{name}.tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                fh.write(text + "\n")
+            os.replace(tmp, os.path.join(d, name))
     gz = "1" if form.get("gzip") else "0"
-    return f"{mode}|{gz}|{int(upload)}|{' '.join(str(n) for n in nets)}|{domain if mode == 'https' else ''}", None
+    return f"{on}|{via}|{gz}|{int(upload)}|{' '.join(str(n) for n in nets)}|{' '.join(domains)}|{tls}|{email}", None
 JOB_CONFIRM = {"rollback": "ZURÜCK", "restore": "EINSPIELEN"}
 JOB_STATES = {"queued": "wartet", "running": "läuft", "done": "fertig", "failed": "Fehler"}
 APP_MODULES = ("Flask", "Werkzeug", "Jinja2", "itsdangerous", "MarkupSafe", "click", "blinker", "gunicorn", "Pillow")
@@ -2926,7 +2955,8 @@ def admin_maintenance():
                            versions=versions, backups=[b for b in maint.get("backups") or [] if isinstance(b, dict)],
                            vers=module_versions(maint), built=image_built_at(), ACTIONS=JOB_ACTIONS,
                            CONFIRM=JOB_CONFIRM, STATES=JOB_STATES, runner=os.path.isdir(os.path.join(JOBS_DIR, "queue")),
-                           proxy=dict(PROXY_DEFAULT, **(maint.get("proxy") or {})), PROXY_MODES=PROXY_MODES,
+                           proxy=dict(PROXY_DEFAULT, **(maint.get("proxy") or {})), PROXY_TLS=PROXY_TLS,
+                           proxy_cert=maint.get("proxy_cert") if isinstance(maint.get("proxy_cert"), dict) else None,
                            client_ip=request.remote_addr or "")
 
 
@@ -2952,8 +2982,13 @@ def admin_job_create():
         if param not in {b.get("file") for b in maint.get("backups") or [] if isinstance(b, dict)}:
             flash("Diese Sicherung ist nicht in der Liste. Seite neu laden und noch einmal wählen.", "error")
             return redirect(back + "#sicherungen")
+    elif action == "proxy" and request.form.get("quick") == "standard":
+        param = PROXY_DEFAULT_PARAM
     elif action == "proxy":
-        param, err = proxy_param(request.form, request.remote_addr or "")
+        form = request.form.to_dict()
+        if request.form.get("quick") == "aus":
+            form.pop("on", None)
+        param, err = proxy_param(form, request.remote_addr or "")
         if err:
             flash(err, "error")
             return redirect(back + "#proxy")

@@ -78,6 +78,19 @@ def read_json(dfd, name):
             os.close(fd)
 
 
+def read_text(dfd, name, limit=100_000):
+    """Kleine Textdatei lesen, ohne einem Symlink zu folgen. Fehlt/zu groß/kein normaler Datei -> None."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as fh:
+        st = os.fstat(fh.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            return None
+        return fh.read().decode("utf-8", "replace")
+
+
 def create_file(dfd, name, mode=0o644):
     """Neue Datei anlegen (nie über einen Symlink), dem App-Benutzer geben. Gibt fd zurück."""
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=dfd)

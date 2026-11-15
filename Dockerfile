@@ -4,7 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DB_PATH=/data/verein.db TZ=Euro
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+# Wechselt bei jedem Update-Tag (update.sh): Pakete werden dann neu installiert und bekommen Sicherheitsupdates,
+# auch wenn sich requirements.txt nicht geändert hat.
+ARG PIP_REFRESH=0
+RUN echo "Pakete Stand $PIP_REFRESH" && pip install --no-cache-dir --upgrade -r requirements.txt \
  && useradd -r -u 1000 app && mkdir /data && chown app /data
 COPY app/ ./app/
 # Zeitstempel des Neubaus (zeigt die Admin-Übersicht unter "Container gebaut")

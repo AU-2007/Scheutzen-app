@@ -61,7 +61,7 @@ if [ "$old" != "$new" ]; then
 fi
 
 info "Neu bauen und starten"
-if compose build --pull -q && compose up -d && wait_healthy 120; then
+if compose build --pull -q --build-arg PIP_REFRESH="$(date +%F)" && compose up -d && wait_healthy 120; then
   docker image prune -f >/dev/null || true
   set_status last_update=now last_rebuild=now app_version="$(git log -1 --format='%h %cd' --date=format:'%d.%m.%Y')" \
     app_behind="$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)" \

@@ -132,6 +132,8 @@ Eingebaut:
 - Trennung Container ↔ Server: Die Wartungsskripte laufen als root, der Datenordner gehört aber dem Container. Darum folgen sie dort keinen Symlinks (`scripts/safeio.py`), lesen und schreiben Sicherung/Wiederherstellung als App-Benutzer (uid 1000) und starten Python isoliert (`python3 -I`). Ein übernommener Container kann so keine Systemdateien lesen, überschreiben oder sich übergeben lassen.
 - Wartungsdienst: nur feste Aktionen, alle Parameter werden auf dem Server noch einmal geprüft, ein Auftrag zur Zeit, kein Neustart in den ersten 10 Minuten nach dem Hochfahren (gegen Neustart-Schleifen)
 - Kalender-Abo-Links: 256 Bit Zufall, nur eigene Termine, für gesperrte Benutzer ungültig, jederzeit erneuerbar
+- Sitzungen stehen zusätzlich in der Datenbank: Abmelden macht auch kopierte Cookies ungültig
+- Jedes Update installiert die Python-Pakete höchstens einmal am Tag neu (Sicherheitsupdates von Flask, Pillow usw.)
 - Zwei-Faktor-Anmeldung für alle wählbar, für Admins Pflicht: Passkeys (WebAuthn, auch ohne Passwort), Authenticator-App (TOTP) und 10 Wiederherstellungscodes. Codes sind nur einmal gültig, Fehlversuche zählen zur Login-Sperre.
 - Push-Benachrichtigungen nur an die bekannten Push-Dienste (Google, Apple, Mozilla, Microsoft), Inhalt verschlüsselt (RFC 8291). Der Server-Schlüssel liegt in `data/vapid.pem`.
 

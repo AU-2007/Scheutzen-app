@@ -78,6 +78,15 @@ def encrypt(payload: bytes, p256dh: str, auth: str, _salt=None, _as_key=None) ->
     return salt + struct.pack(">IB", 4096, len(as_pub_raw)) + as_pub_raw + ct
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Push-Dienste leiten nie um; eine Umleitung würde den Server an eine fremde Adresse schicken."""
+    def redirect_request(self, *a, **kw):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def send(vapid: Vapid, sub: dict, data: dict, subject: str, ttl=24 * 3600, timeout=10):
     """Schickt eine Nachricht. Gibt den HTTP-Status zurück (201 = ok, 404/410 = Abo ungültig)."""
     endpoint = sub["endpoint"]
@@ -88,7 +97,7 @@ def send(vapid: Vapid, sub: dict, data: dict, subject: str, ttl=24 * 3600, timeo
         "TTL": str(ttl), "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream",
         "Urgency": "normal", "Authorization": vapid.auth_header(endpoint, subject)})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _OPENER.open(req, timeout=timeout) as r:
             return r.status
     except urllib.error.HTTPError as e:
         return e.code

@@ -411,6 +411,12 @@ CREATE TABLE IF NOT EXISTS push_log (           -- verhindert doppelte Erinnerun
   PRIMARY KEY (kind, ref, user_id)
 );
 -- Abwesenheiten: Wettkämpfe im Zeitraum werden automatisch abgesagt
+-- Aktive Sitzungen: Abmelden macht auch kopierte Cookies ungültig
+CREATE TABLE IF NOT EXISTS sessions (
+  sid TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS absences (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -555,11 +561,27 @@ def migrate_opponents(conn):
 
 
 # ---------------------------------------------------------------- Hilfen
+def start_session(u):
+    """Neue Sitzung: Kennung im Cookie UND in der Datenbank. Abmelden löscht sie dort -> Cookie-Kopien sind wertlos."""
+    sid = secrets.token_urlsafe(24)
+    conn = db()
+    conn.execute("DELETE FROM sessions WHERE created < ?", ((datetime.now() - timedelta(days=31)).isoformat(),))
+    conn.execute("INSERT INTO sessions (sid, user_id, created) VALUES (?,?,?)",
+                 (sid, u["id"], datetime.now().isoformat(timespec="seconds")))
+    conn.commit()
+    session.clear()
+    session.permanent = True
+    session["uid"] = u["id"]
+    session["pw_ver"] = u["pw_ver"]
+    session["sid"] = sid
+
+
 def current_user():
     if "uid" not in session:
         return None
     if "user" not in g:
-        u = q("SELECT * FROM users WHERE id=? AND active=1", (session["uid"],), one=True)
+        u = q("""SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id AND s.sid=?
+                 WHERE u.id=? AND u.active=1""", (session.get("sid", ""), session["uid"]), one=True)
         if u and session.get("pw_ver", 0) != u["pw_ver"]:
             u = None            # Passwort wurde geändert -> diese Sitzung gilt nicht mehr
         g.user = u
@@ -895,10 +917,7 @@ def login():
         if ok:
             ex("UPDATE users SET last_login=?, last_seen=? WHERE id=?", (now, now, u["id"]))
             ex("DELETE FROM login_log WHERE at < ?", ((datetime.now() - timedelta(days=LOG_KEEP_DAYS)).isoformat(),))
-            session.clear()
-            session.permanent = True
-            session["uid"] = u["id"]
-            session["pw_ver"] = u["pw_ver"]
+            start_session(u)
             return redirect(safe_next(request.args.get("next"), url_for("index")))
         if locked:   # nur wer das richtige Passwort kennt, erfährt von der Sperre
             flash("Dein Zugang ist gesperrt. Bitte wende dich an den Admin.", "error")
@@ -909,6 +928,8 @@ def login():
 
 @app.route("/logout", methods=["POST"])
 def logout():
+    if session.get("sid"):
+        ex("DELETE FROM sessions WHERE sid=?", (session["sid"],))
     session.clear()
     return redirect(url_for("login"))
 
@@ -984,10 +1005,7 @@ def finish_login(u, nxt=None, note=""):
     log_login(u, u["username"], True, note)
     ex("UPDATE users SET last_login=?, last_seen=? WHERE id=?", (now, now, u["id"]))
     ex("DELETE FROM login_log WHERE at < ?", ((datetime.now() - timedelta(days=LOG_KEEP_DAYS)).isoformat(),))
-    session.clear()
-    session.permanent = True
-    session["uid"] = u["id"]
-    session["pw_ver"] = u["pw_ver"]
+    start_session(u)
     return safe_next(nxt, url_for("index"))
 
 
@@ -1713,9 +1731,8 @@ def profile():
             try:
                 from PIL import Image, ImageOps
                 Image.MAX_IMAGE_PIXELS = 25_000_000      # Schutz vor "Dekompressionsbomben"
-                img = Image.open(f.stream)
-                if img.format not in ("JPEG", "PNG", "WEBP", "GIF", "HEIF", "MPO"):
-                    raise ValueError("Bildformat")
+                # nur diese Formate überhaupt öffnen: Parser für exotische Formate (z. B. EPS) laufen gar nicht erst
+                img = Image.open(f.stream, formats=["JPEG", "PNG", "WEBP", "GIF", "MPO"])
                 img.draft("RGB", (640, 640))             # große JPEGs gleich verkleinert laden
                 img = ImageOps.exif_transpose(img).convert("RGB")
                 img = ImageOps.fit(img, (320, 320))
@@ -2669,7 +2686,7 @@ def user_edit(uid=None):
     return render_template("user_edit.html", user=user, all_groups=q("SELECT * FROM groups ORDER BY name"), member_of=member_of, GENDERS=GENDERS,
                            my_groups=user_group_ids(uid) if uid else set(), impact=impact,
                            temp_locked=bool(user and user["username"] and user["username"].lower() in temp_locked_names()),
-                           twofa=has_2fa(user) if (user and user["id"]) else False)
+                           twofa=has_2fa(user) if (user and "id" in user.keys() and user["id"]) else False)
 
 
 def save_user_groups(uid):

@@ -9,6 +9,7 @@ die dieselben Rechte wie der Mannschaftsführer dieser Mannschaft haben.
 """
 import calendar
 import functools
+import math
 import hashlib
 import json
 import os
@@ -645,15 +646,19 @@ def get_match(mid):
     return m
 
 
+RINGS_MAX = 10000   # ponytail: eine Grenze für Einzel- und Mannschaftsergebnis (höchstens ~5 × 654,0 Ringe)
+
+
 def parse_num(val):
+    """Ringe/Ergebnis aus dem Formular: nur endliche Zahlen von 0 bis RINGS_MAX, sonst None (leer)."""
     val = (val or "").strip().replace(",", ".")
-    if val == "":
+    if val == "" or len(val) > 12:
         return None
     try:
         n = float(val)
     except ValueError:
         return None
-    return n if n >= 0 else None
+    return n if math.isfinite(n) and 0 <= n <= RINGS_MAX else None
 
 
 def parse_date(val):
@@ -1009,14 +1014,17 @@ def login_2fa():
             return render_template("login_2fa.html", u=u, passkeys=bool(q("SELECT 1 FROM passkeys WHERE user_id=?", (u["id"],), one=True))), 429
         code = request.form.get("code", "").strip()
         step = SEC.totp_verify(u["totp_secret"], code, u["totp_last"]) if u["totp_secret"] else None
-        if step is not None:
-            ex("UPDATE users SET totp_last=? WHERE id=?", (step, u["id"]))
+        conn = db()
+        # Prüfen und als benutzt markieren in EINEM Schritt: derselbe Code geht auch bei gleichzeitigen Anfragen nur einmal.
+        if step is not None and conn.execute("UPDATE users SET totp_last=? WHERE id=? AND (totp_last IS NULL OR totp_last < ?)",
+                                              (step, u["id"], step)).rowcount == 1:
+            conn.commit()
             return redirect(finish_login(u, session["pending2fa"].get("next"), "2FA App"))
         h = SEC.recovery_hash(code)
-        rc = q("SELECT 1 FROM recovery_codes WHERE user_id=? AND code_hash=? AND used_at IS NULL", (u["id"], h), one=True)
-        if rc and len(h) and len("".join(c for c in code if c.isalnum())) >= 8:
-            ex("UPDATE recovery_codes SET used_at=? WHERE user_id=? AND code_hash=?",
-               (datetime.now().isoformat(timespec="seconds"), u["id"], h))
+        long_enough = len("".join(c for c in code if c.isalnum())) >= 8
+        if long_enough and conn.execute("UPDATE recovery_codes SET used_at=? WHERE user_id=? AND code_hash=? AND used_at IS NULL",
+                                        (datetime.now().isoformat(timespec="seconds"), u["id"], h)).rowcount == 1:
+            conn.commit()
             left = q("SELECT COUNT(*) n FROM recovery_codes WHERE user_id=? AND used_at IS NULL", (u["id"],), one=True)["n"]
             dest = finish_login(u, session["pending2fa"].get("next"), "2FA Wiederherstellungscode")
             flash(f"Mit Wiederherstellungscode angemeldet. Noch {left} Codes übrig – bei Bedarf unter Sicherheit neue erzeugen.",

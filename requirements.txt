@@ -1,5 +1,5 @@
 Flask==3.1.*
-gunicorn==26.*
+gunicorn==27.*
 Pillow==13.*
 # Passkeys, Push-Benachrichtigungen
 cryptography==50.*
